@@ -56,10 +56,11 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 文字冒险游戏。�
 }
 ```
 
-- **效果** `Effects`：`set`（赋值）/ `add`（数值增减）/ `gain` / `lose`（道具）/ `flag`（旗标，与变量同命名空间）；
+- **效果** `Effects`：`set`（赋值）/ `add`（数值增减）/ `rand`（随机整数，`[{var,min,max}]`）/ `violation`（记录违规规则）/ `day`（推进天数）/ `gain` / `lose`（道具）/ `gainDocs`（线索）/ `flag`（旗标，与变量同命名空间）；
 - **条件** `Condition`：`op: eq|ne|gt|gte|lt|lte|exists|has|not_has`，可组合 `and` / `or` / `not`；
-  `has`/`not_has` 检查道具（var 为道具名）；特殊变量 `#steps`（步数）、`#ending`（结局 id）、`#visited`（访问过某节点）；
-- **好感度**：就是普通数值变量（`add`/`set` 维护），用 `story_set_meta { hud: [{ var: "好感度", label: "好感度", max: 100 }] }` 显示为进度条；
+  `has`/`not_has` 检查道具；特殊变量 `#steps` / `#ending` / `#visited` / `#docs` / `#day`（天数）/ `#violated`（违反过某规则）；
+- **音效/动画**：节点 `sfx`（click/page/heartbeat/drone/achievement/shock/ending_*）与 `fx`（shake/flicker/glitch/pulse）；选项/成就/线索/结局自动播音效，右上角 🔊 可静音；
+- **好感度**：普通数值变量（`add`/`set` 维护），`story_set_meta { hud: [{ var: "好感度", label: "好感度", max: 100 }] }` 显示进度条；HUD 支持 `var: "#day"` 显示天数；
 - **成就**：`{ id, title, description, icon?, hidden?, when }`，`when` 支持特殊变量；
 - **线索/文档**：`story_upsert_document { document: { id, title, text, kind } }` 定义，节点用 `effects.gainDocs: ["d_id"]` 收集，玩家可在线索夹查看；条件 `#docs` 判断是否已获得；
 - **文本块**：节点可用 `blocks` 代替 `text` 混合排版：`{ type: "title"|"para"|"rules"|"note"|"letter", text, title? }` —— 规则怪谈的多份守则/便条就靠它；
@@ -70,7 +71,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 文字冒险游戏。�
 | 用户需求 | 引擎配置 |
 |---|---|
 | 悬疑/恐怖 | `theme: "dark"`；变量：理智值/线索数；成就：结局收集 |
-| 规则怪谈 | `documents` 多份矛盾守则 + `gainDocs` 收集 + `blocks` 规则排版 + `#docs` 条件解锁，结局按违规度分支 |
+| 规则怪谈 | `documents` 多份矛盾守则 + `gainDocs` 收集 + `blocks` 规则排版 + `#docs` 条件解锁；`violation`/`#violated` 违规度、`day`/`#day` 天数循环、节点 `sfx`/`fx` 恐怖氛围，结局按违规度分支 |
 | 赛博/科幻 | `theme: "cyber"`；变量：信用点/黑客等级 |
 | 温馨/恋爱 | `theme: "cozy"`；`hud` 显示好感度进度条；成就：隐藏好感事件 |
 | 复古/蒸汽 | `theme: "paper"` |

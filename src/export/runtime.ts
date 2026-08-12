@@ -1,5 +1,6 @@
 import { Game } from '../core/engine.js'
 import type { EndingMeta, GameState, Story, StoryNode, TextBlock } from '../core/types.js'
+import { initSfx, isMuted, playSfx, toggleMuted, type SfxName } from './sfx.js'
 
 /**
  * 运行时渲染器：内嵌于导出的单文件 HTML 中（经 esbuild bundle 成 IIFE）。
@@ -20,6 +21,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   let game: Game
   /** 上次渲染时的成就快照（用于检测新解锁弹 toast） */
   let lastAchievements: string[] = []
+
+  initSfx()
 
   /* ------------------------------ 存档 ------------------------------ */
 
@@ -49,6 +52,31 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /* ------------------------------ 渲染 ------------------------------ */
 
+  /** 静音开关按钮（标题屏与游戏画面共用） */
+  function muteButtonHtml(): string {
+    return `<button class="btn btn-ghost docs-btn" data-action="mute" title="音效开关">${
+      isMuted() ? '🔇' : '🔊'
+    }</button>`
+  }
+
+  function bindMute(): void {
+    root.querySelector('[data-action="mute"]')?.addEventListener('click', () => {
+      toggleMuted()
+      const btn = root.querySelector<HTMLElement>('[data-action="mute"]')
+      if (btn) btn.textContent = isMuted() ? '🔇' : '🔊'
+    })
+  }
+
+  /** 节点卡片动画 class（node.fx） */
+  function cardFx(node: StoryNode): string {
+    return (node.fx ?? []).map((f) => `fx-${f}`).join(' ')
+  }
+
+  /** 播放节点音效（node.sfx，未知名静默） */
+  function playNodeSfx(node: StoryNode): void {
+    if (node.sfx) playSfx(node.sfx as SfxName)
+  }
+
   function renderTitle(): void {
     const has = hasSave()
     const achCount = (story.achievements ?? []).length
@@ -63,7 +91,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           ${has ? '<button class="btn btn-ghost" data-action="clear">清除存档</button>' : ''}
           ${achCount > 0 ? '<button class="btn btn-ghost" data-action="achievements">成就</button>' : ''}
         </div>
-        <p class="title-foot">由 ai-text-engine 生成</p>
+        <p class="title-foot">${muteButtonHtml()}</p>
       </main>`
     bind('[data-action="start"]', () => {
       game = new Game(story)
@@ -85,6 +113,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       renderTitle()
     })
     bind('[data-action="achievements"]', () => renderAchievements())
+    bindMute()
   }
 
   /** 成就列表画面 */
@@ -133,6 +162,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       .map((a) => `<div class="ach-toast-item">${esc(a.icon ?? '🏆')} 成就解锁：${esc(a.title)}</div>`)
       .join('')
     root.appendChild(toast)
+    playSfx('achievement')
     setTimeout(() => toast.remove(), 3200)
   }
 
@@ -145,16 +175,18 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       return
     }
     const choices = game.visibleChoices()
+    playNodeSfx(node)
     root.innerHTML = `
       <main class="screen game-screen">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
           ${docsButton()}
+          ${muteButtonHtml()}
         </header>
         ${renderHud()}
         ${renderInventory(game.state.inventory)}
-        <section class="card">
+        <section class="card ${cardFx(node)}">
           ${renderBody(node)}
           <div class="card-actions">
             ${choices
@@ -168,6 +200,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       </main>`
     bindChoices()
     bind('[data-action="docs"]', () => renderDocsList())
+    bindMute()
     notifyNewAchievements()
   }
 
@@ -204,6 +237,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 线索夹列表画面 */
   function renderDocsList(): void {
+    playSfx('page')
     const owned = game.state.docs
       .map((id) => story.documents?.[id])
       .filter((d): d is NonNullable<typeof d> => Boolean(d))
@@ -235,6 +269,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 单个线索查看画面 */
   function renderDocDetail(docId: string): void {
+    playSfx('page')
     const doc = story.documents?.[docId]
     if (!doc) return
     root.innerHTML = `
@@ -264,14 +299,16 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       hidden: '结局 · 隐藏',
     }
     const node = game.currentNode
+    playSfx(`ending_${ending.kind}` as SfxName)
     root.innerHTML = `
       <main class="screen game-screen">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
           ${docsButton()}
+          ${muteButtonHtml()}
         </header>
-        <section class="card card-ending ending-${ending.kind}">
+        <section class="card card-ending ending-${ending.kind} ${cardFx(node)}">
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>
           ${renderBody(node)}
@@ -282,6 +319,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </section>
       </main>`
     bind('[data-action="docs"]', () => renderDocsList())
+    bindMute()
     bind('[data-action="replay"]', () => {
       game = new Game(story)
       lastAchievements = [...game.state.achievements]
@@ -299,13 +337,13 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       .join('')}</div>`
   }
 
-  /** HUD 统计条（meta.hud：好感度/理智值等数值变量） */
+  /** HUD 统计条（meta.hud：好感度/理智值等数值变量；var 可为 #day） */
   function renderHud(): string {
     const hud = story.meta.hud
     if (!hud?.length) return ''
     return `<div class="hud">${hud
       .map((stat) => {
-        const raw = game.state.vars[stat.var]
+        const raw = stat.var === '#day' ? game.state.day : game.state.vars[stat.var]
         const value = typeof raw === 'number' ? raw : 0
         const max = stat.max ?? 100
         const pct = Math.max(0, Math.min(100, (value / max) * 100))
@@ -329,6 +367,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       btn.addEventListener('click', () => {
         const index = Number(btn.dataset.choice)
         root.querySelectorAll<HTMLButtonElement>('[data-choice]').forEach((b) => (b.disabled = true))
+        playSfx('click')
         game.choose(index)
         renderNode()
       })

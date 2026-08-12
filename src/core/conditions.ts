@@ -12,6 +12,10 @@ export interface ConditionContext {
   visited?: string[]
   /** 已获得的线索/文档 id */
   docs?: string[]
+  /** 当前天数 */
+  day?: number
+  /** 已违反的规则 id */
+  violations?: string[]
 }
 
 /** 特殊变量（以 # 开头）：#steps / #ending / #visited */
@@ -92,6 +96,13 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     }
     case '#docs': {
       const has = cond.value !== undefined && (ctx.docs ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#day':
+      return compare(cond.op, ctx.day ?? 1, cond.value)
+    case '#violated': {
+      const has =
+        cond.value !== undefined && (ctx.violations ?? []).includes(String(cond.value))
       return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
     }
     default:

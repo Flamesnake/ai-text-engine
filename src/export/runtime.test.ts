@@ -288,4 +288,36 @@ describe('文本块与线索夹', () => {
     ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
     expect(root.querySelector('[data-action="docs"]')).toBeNull()
   })
+
+  it('节点 fx 动画 class 生效，mute 按钮可切换', () => {
+    const story = makeStory()
+    story.nodes.start.fx = ['shake', 'flicker']
+    story.nodes.start.sfx = 'heartbeat' // 无 AudioContext 环境应静默不抛错
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:fx', storage })
+
+    // 标题屏有 mute 按钮（默认 🔊）
+    const titleMute = root.querySelector<HTMLElement>('[data-action="mute"]')
+    expect(titleMute).not.toBeNull()
+    expect(titleMute?.textContent).toBe('🔊')
+
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    // 卡片带 fx class
+    const card = root.querySelector('.card')
+    expect(card?.className).toContain('fx-shake')
+    expect(card?.className).toContain('fx-flicker')
+    // 游戏画面也有 mute 按钮
+    const mute = root.querySelector<HTMLElement>('[data-action="mute"]')
+    expect(mute).not.toBeNull()
+    // 点击切换为静音
+    mute!.click()
+    expect(mute?.textContent).toBe('🔇')
+    // 状态持久化
+    expect(localStorage.getItem('ate:sfx:muted')).toBe('1')
+    // 再点恢复
+    mute!.click()
+    expect(mute?.textContent).toBe('🔊')
+  })
 })

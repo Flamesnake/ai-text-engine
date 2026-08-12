@@ -5,9 +5,13 @@ export interface EffectTarget {
   vars: Vars
   inventory: string[]
   docs: string[]
+  /** 当前天数（day 效果累加后回写） */
+  day: number
+  /** 违规记录（去重） */
+  violations: string[]
 }
 
-/** 应用效果到状态（set / add / gain / lose / gainDocs / flag） */
+/** 应用效果到状态（set / add / rand / violation / day / gain / lose / gainDocs / flag） */
 export function applyEffects(effects: Effects | undefined, target: EffectTarget): void {
   if (!effects) return
 
@@ -21,6 +25,21 @@ export function applyEffects(effects: Effects | undefined, target: EffectTarget)
       const current = typeof target.vars[k] === 'number' ? (target.vars[k] as number) : 0
       target.vars[k] = current + delta
     }
+  }
+  if (effects.rand) {
+    for (const r of effects.rand) {
+      if (Number.isFinite(r.min) && Number.isFinite(r.max) && r.max >= r.min) {
+        target.vars[r.var] = Math.floor(Math.random() * (r.max - r.min + 1)) + r.min
+      }
+    }
+  }
+  if (effects.violation) {
+    for (const ruleId of effects.violation) {
+      if (!target.violations.includes(ruleId)) target.violations.push(ruleId)
+    }
+  }
+  if (effects.day !== undefined) {
+    target.day = Math.max(1, target.day + effects.day)
   }
   if (effects.gain) {
     for (const item of effects.gain) {

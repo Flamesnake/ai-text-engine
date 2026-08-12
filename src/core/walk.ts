@@ -31,6 +31,8 @@ interface SimState {
   vars: Vars
   inventory: string[]
   docs: string[]
+  violations: string[]
+  day: number
 }
 
 /**
@@ -48,7 +50,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   let deepest = 0
   const visits: Record<string, number> = {}
 
-  const initial: SimState = { vars: {}, inventory: [], docs: [] }
+  const initial: SimState = { vars: {}, inventory: [], docs: [], violations: [], day: 1 }
 
   dfs(story, story.start, initial, 1, visits)
 
@@ -115,5 +117,7 @@ function cloneState(s: SimState): SimState {
     vars: { ...s.vars },
     inventory: [...s.inventory],
     docs: [...s.docs],
+    violations: [...s.violations],
+    day: s.day,
   }
 }

@@ -113,7 +113,7 @@ describe('条件 DSL', () => {
 
 describe('effects / conditions 直接单测', () => {
   it('applyEffects：set/add/gain/lose/flag 全部生效（flag 写入 vars）', () => {
-    const target = { vars: { hp: 10 }, inventory: ['钥匙'], docs: [] }
+    const target = { vars: { hp: 10 }, inventory: ['钥匙'], docs: [], day: 1, violations: [] }
     applyEffects(
       {
         set: { name: '阿明' },

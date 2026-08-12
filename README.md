@@ -99,8 +99,12 @@ interface Choice {
 interface Effects {
   set?: Record<string, number | string | boolean>  // 赋值变量
   add?: Record<string, number>                     // 数值增减（不存在时从 0 起算）
+  rand?: { var: string; min: number; max: number }[] // 随机赋整数（含两端）
+  violation?: string[]                             // 记录违规规则 id（去重，条件 #violated）
+  day?: number                                     // 推进天数（增量；最小 1）
   gain?: string[]                                  // 获得道具
   lose?: string[]                                  // 失去道具
+  gainDocs?: string[]                              // 获得线索/文档
   flag?: Record<string, boolean>                   // 旗标（与变量同命名空间）
 }
 
@@ -119,8 +123,37 @@ interface Condition {
 - 条件 `has` / `not_has`：`var` 视为**道具名**，检查 `inventory`；
 - 条件 `exists`：检查变量是否已定义；其余比较符与 `vars[var]` 比较；
 - **旗标与变量同命名空间**（`flag` 效果写进 `vars`），条件可直接引用；
+- **特殊变量**：`#steps`（步数）、`#ending`（结局 id）、`#visited`（访问过某节点）、
+  `#docs`（获得过某线索）、`#day`（当前天数，数值比较）、`#violated`（违反过某规则，eq 判断）；
 - 结局节点：`choices: []` 且带 `ending`；选项的 `target` 必须指向存在的节点；
-- 正文/选项文案中的 `{未写入变量}` 会被 `story_validate` 报告（疑似拼写错误）。
+- 正文/选项文案中的 `{未写入变量}` 会被 `story_validate` 报告（疑似拼写错误）；
+- 正文插值还支持 `{#day}`（显示天数）。
+
+## 音效 / 动画
+
+节点可声明氛围效果（`story_upsert_node` 时带上）：
+
+```jsonc
+{
+  "id": "dark_hall",
+  "text": "走廊尽头一片漆黑……",
+  "sfx": "heartbeat",          // 进入节点播放的音效
+  "fx": ["flicker"],           // 卡片动画：shake / flicker / glitch / pulse
+  "onEnter": { "day": 1, "violation": ["r_curfew"], "rand": [{ "var": "恐惧", "min": 1, "max": 5 }] }
+}
+```
+
+- **音效**（Web Audio 程序化合成，零外部文件）：`click`（选项）、`page`（线索翻页）、
+  `heartbeat`（心跳）、`drone`（低频氛围）、`achievement`（成就）、`shock`（惊吓）、
+  `ending_good` / `ending_bad` / `ending_true`（结局）；
+- 选项点击、成就解锁、线索翻页、结局自动播放对应音效；标题屏/游戏画面右上角 🔊 按钮可静音（偏好持久化）；
+- **动画**：`shake` 抖动 / `flicker` 闪烁 / `glitch` 毛刺 / `pulse` 脉动；尊重系统「减弱动态效果」设置。
+
+## 规则怪谈玩法配方（违规度 + 天数循环）
+
+- **违规度**：违反规则处加 `violation: ["r_xxx"]`；条件 `#violated` 判断是否违反过（解锁后续分支）；
+- **天数循环**：过夜节点 `onEnter: { day: 1 }`；HUD 显示天数：`story_set_meta { hud: [{ var: "#day", label: "第几天", max: 7 }] }`；
+- **随机性**：`rand` 效果产生浮动值（伤害/掉宝/随机事件）；成就/条件可直接引用生成的变量。
 
 ## 成就 / 主题 / HUD
 

@@ -152,6 +152,7 @@ function collectEffects(
   for (const item of effects.gain ?? []) items.add(item)
   for (const item of effects.lose ?? []) items.add(item)
   for (const d of effects.gainDocs ?? []) docs?.add(d)
+  for (const r of effects.rand ?? []) vars.add(r.var)
 }
 
 function collectConditionVars(cond: Condition): string[] {

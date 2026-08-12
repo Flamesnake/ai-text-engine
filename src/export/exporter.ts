@@ -437,6 +437,35 @@ body {
 }
 .doc-title { letter-spacing: .06em; }
 
+/* 节点动画 fx */
+.fx-shake { animation: fx-shake .45s ease-in-out infinite; }
+@keyframes fx-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+.fx-flicker { animation: fx-flicker 1.3s steps(2) infinite; }
+@keyframes fx-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+.fx-glitch { animation: fx-glitch .5s steps(2) infinite; }
+@keyframes fx-glitch {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(2px, -1px); }
+  60% { transform: translate(-1px, -1px); }
+  80% { transform: translate(1px, 1px); }
+}
+.fx-pulse { animation: fx-pulse 1.4s ease-in-out infinite; }
+@keyframes fx-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse { animation: none; }
+}
+
 /* 成就 */
 .achievement-toast {
   position: fixed;

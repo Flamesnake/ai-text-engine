@@ -26,6 +26,8 @@ export class Game {
         vars: { ...save.vars },
         inventory: [...save.inventory],
         docs: [...(save.docs ?? [])],
+        violations: [...(save.violations ?? [])],
+        day: typeof save.day === 'number' ? save.day : 1,
         achievements: [...(save.achievements ?? [])],
         endingId: save.endingId ?? null,
         updatedAt: save.updatedAt ?? Date.now(),
@@ -38,6 +40,8 @@ export class Game {
         vars: {},
         inventory: [],
         docs: [],
+        violations: [],
+        day: 1,
         achievements: [],
         endingId: null,
         updatedAt: Date.now(),
@@ -86,11 +90,15 @@ export class Game {
       throw new RangeError(`选项索引越界：${index}（可见选项 0..${choices.length - 1}）`)
     }
     const choice = choices[index]
-    applyEffects(choice.effects, {
+    const target = {
       vars: this.st.vars,
       inventory: this.st.inventory,
       docs: this.st.docs,
-    })
+      day: this.st.day,
+      violations: this.st.violations,
+    }
+    applyEffects(choice.effects, target)
+    this.st.day = target.day
     this.enter(choice.target)
   }
 
@@ -103,6 +111,8 @@ export class Game {
       vars: {},
       inventory: [],
       docs: [],
+      violations: [],
+      day: 1,
       achievements: [],
       endingId: null,
       updatedAt: Date.now(),
@@ -123,6 +133,9 @@ export class Game {
       if (k === '#history') {
         return String(this.st.history.length)
       }
+      if (k === '#day') {
+        return String(this.st.day)
+      }
       const v = this.st.vars[k]
       return v === undefined ? match : String(v)
     })
@@ -138,6 +151,8 @@ export class Game {
       vars: { ...this.st.vars },
       inventory: [...this.st.inventory],
       docs: [...this.st.docs],
+      violations: [...this.st.violations],
+      day: this.st.day,
       achievements: [...this.st.achievements],
       endingId: this.st.endingId,
       updatedAt: Date.now(),
@@ -179,17 +194,23 @@ export class Game {
       endingId: this.st.endingId,
       visited: this.st.visited,
       docs: this.st.docs,
+      day: this.st.day,
+      violations: this.st.violations,
     }
   }
 
   private applyOnEnter(nodeId: string): void {
     const node = this.story.nodes[nodeId]
     if (node?.onEnter) {
-      applyEffects(node.onEnter, {
+      const target = {
         vars: this.st.vars,
         inventory: this.st.inventory,
         docs: this.st.docs,
-      })
+        day: this.st.day,
+        violations: this.st.violations,
+      }
+      applyEffects(node.onEnter, target)
+      this.st.day = target.day
     }
   }
 

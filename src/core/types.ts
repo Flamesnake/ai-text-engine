@@ -57,6 +57,12 @@ export interface Effects {
   set?: Record<string, VarValue>
   /** 数值增减（对数字变量；不存在时从 0 起算） */
   add?: Record<string, number>
+  /** 随机赋整数（含两端），如 rand: [{ var: '伤害', min: 3, max: 7 }] */
+  rand?: { var: string; min: number; max: number }[]
+  /** 记录违规（规则 id，去重进 GameState.violations；配合 #violated 条件） */
+  violation?: string[]
+  /** 推进天数（增量，默认 +1；负数为回退；最小 1） */
+  day?: number
   /** 获得道具 */
   gain?: string[]
   /** 失去道具 */
@@ -163,6 +169,10 @@ export interface StoryNode {
   text: string
   /** 分类型文本块（可选）：para/rules/note/letter/title 混合排版 */
   blocks?: TextBlock[]
+  /** 进入本节点时播放的音效名：click/page/heartbeat/drone/achievement/shock/ending_* */
+  sfx?: string
+  /** 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse */
+  fx?: string[]
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
   /** 结局节点必须携带 */
@@ -211,6 +221,10 @@ export interface GameState {
   inventory: string[]
   /** 已获得的线索/文档 id */
   docs: string[]
+  /** 已违反的规则 id（规则怪谈「违规度」） */
+  violations: string[]
+  /** 当前天数（规则怪谈「第几天」循环） */
+  day: number
   /** 已解锁成就 id */
   achievements: string[]
   endingId: string | null

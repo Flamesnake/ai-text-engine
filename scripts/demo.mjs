@@ -73,11 +73,14 @@ await tool('story_new', { title: '迷雾车站', subtitle: '你错过了末班�
 await tool('story_delete_node', { title: '迷雾车站', nodeId: 'end', force: true })
 await tool('story_delete_ending', { title: '迷雾车站', endingId: 'e_end' })
 
-// 1.6 风格与 HUD：赛博霓虹主题 + 心境统计条
+// 1.6 风格与 HUD：赛博霓虹主题 + 心境/天数统计条
 await tool('story_set_meta', {
   title: '迷雾车站',
   theme: 'cyber',
-  hud: [{ var: 'mood', label: '心境', max: 3 }],
+  hud: [
+    { var: 'mood', label: '心境', max: 3 },
+    { var: '#day', label: '第几天', max: 7 },
+  ],
 })
 
 // 1.7 成就系统
@@ -152,8 +155,16 @@ const nodes = [
   },
   {
     id: 'wait',
-    text: '你在站台边坐下，发现长椅角落有一把旧伞，伞下压着一张泛黄的时刻表。\n伞柄刻着三个字：「别回头」。',
-    onEnter: { gain: ['旧伞'], set: { mood: 0 }, gainDocs: ['d_schedule'] },
+    text: '你在站台边坐下，发现长椅角落有一把旧伞，伞下压着一张泛黄的时刻表。\n伞柄刻着三个字：「别回头」。\n（告示说雾天禁止在站台逗留——你已经在违反规则了。）',
+    sfx: 'heartbeat',
+    onEnter: {
+      gain: ['旧伞'],
+      set: { mood: 0 },
+      gainDocs: ['d_schedule'],
+      violation: ['r_stay'],
+      day: 1,
+      rand: [{ var: 'mood', min: 0, max: 1 }],
+    },
     choices: [
       { label: '撑着伞，走向月台尽头', target: 'platform', when: { op: 'has', var: '旧伞' } },
       { label: '把伞放回原处，坐在长椅上等', target: 'bench' },
@@ -175,6 +186,8 @@ const nodes = [
   {
     id: 'door',
     text: '通道里漆黑一片，只有滴水声。你撑开那把旧伞，伞骨上亮起幽蓝的微光。\n光在墙上照出一行字：「向前走，别回头。」',
+    sfx: 'drone',
+    fx: ['flicker'],
     onEnter: { flag: { lit: true }, add: { mood: 1 } },
     choices: [
       { label: '借着光向前走', target: 'dawn', when: { op: 'eq', var: 'lit', value: true } },
