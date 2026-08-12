@@ -449,6 +449,18 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: var(--fx-flicker-min, .35); }
 }
+/* unstable：JS 在随机间隔加 .fx-burst，播放一次「连闪爆发」后移除 */
+.fx-unstable { }
+.fx-burst { animation: fx-burst .55s steps(1) both; }
+@keyframes fx-burst {
+  0%, 100% { opacity: 1; }
+  8% { opacity: var(--fx-burst-min, .2); }
+  16% { opacity: 1; }
+  26% { opacity: var(--fx-burst-min, .2); }
+  38% { opacity: 1; }
+  48% { opacity: var(--fx-burst-min, .2); }
+  60% { opacity: 1; }
+}
 .fx-glitch { animation: fx-glitch var(--fx-glitch-dur, .5s) steps(2) infinite; }
 @keyframes fx-glitch {
   0%, 100% { transform: translate(0, 0); }
@@ -463,7 +475,7 @@ body {
   50% { transform: scale(var(--fx-pulse-scale, 1.02)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse { animation: none; }
+  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst { animation: none; }
 }
 
 /* 成就 */

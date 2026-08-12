@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountTextAdventure } from './runtime.js'
 import { makeStory } from '../core/fixtures.js'
 
@@ -287,6 +287,40 @@ describe('文本块与线索夹', () => {
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
     ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
     expect(root.querySelector('[data-action="docs"]')).toBeNull()
+  })
+
+  it('unstable 不稳定灯：随机间隔触发连闪爆发后移除', () => {
+    vi.useFakeTimers()
+    // 控制随机数：delay = 2000 + random*3000 → 固定 2000ms，便于分步推进
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const story = makeStory()
+    story.nodes.start.fx = [{ name: 'unstable', intensity: 0.5, speed: 1 }]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:unstable', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const card = root.querySelector<HTMLElement>('.card')!
+    expect(card.className).toContain('fx-unstable')
+    expect(card.getAttribute('style')).toContain('--fx-burst-min: 0.60')
+
+    // 初始未触发爆发
+    expect(card.classList.contains('fx-burst')).toBe(false)
+
+    // 第一轮：delay=2000 到达 → 连闪爆发出现
+    vi.advanceTimersByTime(2000)
+    expect(card.classList.contains('fx-burst')).toBe(true)
+
+    // 爆发动画结束（~0.58s）→ 移除
+    vi.advanceTimersByTime(600)
+    expect(card.classList.contains('fx-burst')).toBe(false)
+
+    // 下一轮随机等待仍在排程（schedule 递归）
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+    randomSpy.mockRestore()
+    vi.useRealTimers()
   })
 
   it('节点 fx 动画 class 生效，mute 按钮可切换', () => {

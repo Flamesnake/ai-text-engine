@@ -190,7 +190,7 @@ export interface StoryNode {
 
 /** 节点动画效果规格（fx 数组元素：效果名或带参数的规格） */
 export interface FxSpec {
-  name: 'shake' | 'flicker' | 'glitch' | 'pulse'
+  name: 'shake' | 'flicker' | 'glitch' | 'pulse' | 'unstable'
   /** 幅度倍率（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
   intensity?: number
   /** 频率倍率（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */

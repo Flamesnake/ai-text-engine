@@ -21,6 +21,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   let game: Game
   /** 上次渲染时的成就快照（用于检测新解锁弹 toast） */
   let lastAchievements: string[] = []
+  /** 不稳定灯随机爆发定时器 */
+  let unstableTimer: ReturnType<typeof setTimeout> | null = null
 
   initSfx()
 
@@ -68,9 +70,14 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   }
 
   /** 节点卡片动画：返回 class 与内联 CSS 变量（幅度/频率由 FxSpec 控制） */
-  function cardFx(node: StoryNode): { cls: string; style: string } {
+  function cardFx(node: StoryNode): {
+    cls: string
+    style: string
+    unstable: { intensity: number; speed: number } | null
+  } {
     const cls: string[] = []
     const vars: string[] = []
+    let unstable: { intensity: number; speed: number } | null = null
     for (const item of node.fx ?? []) {
       const spec = typeof item === 'string' ? { name: item } : item
       cls.push(`fx-${spec.name}`)
@@ -87,6 +94,11 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           vars.push(`--fx-flicker-min: ${Math.max(0.05, 1 - 0.65 * intensity).toFixed(2)}`)
           vars.push(`--fx-flicker-dur: ${dur(1.3)}`)
           break
+        case 'unstable':
+          // 不稳定灯：随机间隔连闪爆发（JS 驱动）；intensity 控制闪到多暗，speed 控制爆发频率
+          vars.push(`--fx-burst-min: ${Math.max(0.05, 1 - 0.8 * intensity).toFixed(2)}`)
+          unstable = { intensity, speed }
+          break
         case 'glitch':
           vars.push(`--fx-glitch-amp: ${(2 * intensity).toFixed(1)}px`)
           vars.push(`--fx-glitch-dur: ${dur(0.5)}`)
@@ -97,7 +109,35 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           break
       }
     }
-    return { cls: cls.join(' '), style: vars.join('; ') }
+    return { cls: cls.join(' '), style: vars.join('; '), unstable }
+  }
+
+  /** 不稳定灯：清除进行中的随机爆发定时器 */
+  function clearUnstable(): void {
+    if (unstableTimer !== null) {
+      clearTimeout(unstableTimer)
+      unstableTimer = null
+    }
+  }
+
+  /**
+   * 不稳定灯驱动：大部分时间正常 → 随机间隔（2-5 秒 / speed）触发一次「连闪爆发」。
+   * 爆发 = 给卡片加 .fx-burst（单次 0.55s 动画，连续闪 3 次）后移除，再进入下一轮随机等待。
+   */
+  function startUnstable(
+    card: HTMLElement,
+    spec: { intensity: number; speed: number },
+  ): void {
+    clearUnstable()
+    const schedule = (): void => {
+      const delay = ((2000 + Math.random() * 3000) / spec.speed) | 0
+      unstableTimer = setTimeout(() => {
+        card.classList.add('fx-burst')
+        setTimeout(() => card.classList.remove('fx-burst'), 580)
+        schedule()
+      }, delay)
+    }
+    schedule()
   }
 
   /** 播放节点音效（node.sfx，未知名静默） */
@@ -106,6 +146,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   }
 
   function renderTitle(): void {
+    clearUnstable()
     const has = hasSave()
     const achCount = (story.achievements ?? []).length
     root.innerHTML = `
@@ -146,6 +187,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 成就列表画面 */
   function renderAchievements(): void {
+    clearUnstable()
     const achievements = story.achievements ?? []
     const unlocked = load()?.achievements ?? []
     root.innerHTML = `
@@ -230,6 +272,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bindChoices()
     bind('[data-action="docs"]', () => renderDocsList())
     bindMute()
+    const cardEl = root.querySelector<HTMLElement>('.card')
+    if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
     notifyNewAchievements()
   }
 
@@ -266,6 +310,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 线索夹列表画面 */
   function renderDocsList(): void {
+    clearUnstable()
     playSfx('page')
     const owned = game.state.docs
       .map((id) => story.documents?.[id])
@@ -298,6 +343,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 单个线索查看画面 */
   function renderDocDetail(docId: string): void {
+    clearUnstable()
     playSfx('page')
     const doc = story.documents?.[docId]
     if (!doc) return
@@ -357,6 +403,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       renderNode()
     })
     bind('[data-action="title"]', () => renderTitle())
+    const cardEl = root.querySelector<HTMLElement>('.card')
+    if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
     notifyNewAchievements()
   }
 
