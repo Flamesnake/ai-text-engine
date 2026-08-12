@@ -1,0 +1,291 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { mountTextAdventure } from './runtime.js'
+import { makeStory } from '../core/fixtures.js'
+
+/** 内存版 Storage（用于注入，避免污染真实 localStorage） */
+function memoryStorage(): { storage: Storage; map: Map<string, string> } {
+  const map = new Map<string, string>()
+  const storage = {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+    key: () => null,
+    get length() {
+      return map.size
+    },
+  } as Storage
+  return { storage, map }
+}
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
+
+describe('mountTextAdventure 运行时集成', () => {
+  it('完整游玩流程：标题屏 → 开始 → 拿剑 → 战斗 → 好结局，且存档写入', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage, map } = memoryStorage()
+
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:1', storage })
+
+    // 标题屏
+    expect(root.querySelector<HTMLButtonElement>('[data-action="start"]')).not.toBeNull()
+    expect(root.querySelector('.title-main')?.textContent).toBe('测试剧情')
+
+    // 开始游戏
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.card-text')?.textContent).toContain('开局')
+
+    // 选项渲染（含条件过滤前的完整选项）
+    let btns = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
+    expect(btns.map((b) => b.textContent)).toEqual(['拿剑', '空手'])
+
+    // 拿剑 → armed：onEnter courage+3=8，道具栏显示
+    btns[0].click()
+    expect(root.querySelector('.card-text')?.textContent).toContain('你有剑')
+    expect(root.querySelectorAll('.inv-chip').length).toBe(1)
+
+    // 条件选项：courage=8 满足战斗条件
+    btns = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
+    expect(btns.map((b) => b.textContent)).toEqual(['战斗', '逃跑'])
+
+    // 战斗 → 好结局
+    btns[0].click()
+    expect(root.querySelector('.ending-title')?.textContent).toBe('好结局')
+    expect(root.querySelector('.ending-good .ending-badge')?.textContent).toContain('生还')
+
+    // 存档已写入
+    expect(map.get('test:1')).toBeTruthy()
+  })
+
+  it('空手路线：条件选项被过滤（无剑时无战斗强化），走求饶到真相结局', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:2', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 空手
+    expect(root.querySelector('.card-text')?.textContent).toContain('手无寸铁')
+
+    let btns = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
+    expect(btns.map((b) => b.textContent)).toEqual(['战斗', '求饶'])
+    btns[1].click() // 求饶
+
+    expect(root.querySelector('.ending-title')?.textContent).toBe('真相')
+    expect(root.querySelector('.ending-true')).not.toBeNull()
+  })
+
+  it('存档恢复：刷新后「继续上次」回到上次节点', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    // 第一次会话：走到 armed
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:3', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(root.querySelector('.card-text')?.textContent).toContain('你有剑')
+
+    // 第二次会话（模拟刷新）：标题屏出现「继续上次」
+    root.innerHTML = ''
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:3', storage })
+    expect(root.querySelector<HTMLButtonElement>('[data-action="continue"]')).not.toBeNull()
+    ;(root.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.card-text')?.textContent).toContain('你有剑')
+    expect(root.querySelectorAll('.inv-chip').length).toBe(1)
+  })
+
+  it('结局后「再来一次」回到起点，「返回标题」回标题屏', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:4', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click() // 拿剑
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click() // 战斗
+    expect(root.querySelector('.ending-title')?.textContent).toBe('好结局')
+
+    ;(root.querySelector('[data-action="replay"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.card-text')?.textContent).toContain('开局')
+
+    ;(root.querySelector('[data-action="clear"]') as HTMLButtonElement)?.click() // 无存档时无此按钮
+    // 走到结局再返回标题
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 空手
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 求饶
+    ;(root.querySelector('[data-action="title"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.title-main')?.textContent).toBe('测试剧情')
+  })
+
+  it('meta.hud 配置后显示统计条，数值随变量变化', () => {    const story = makeStory()
+    story.meta.hud = [{ var: 'courage', label: '勇气', max: 10 }]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    mountTextAdventure(root, story, { saveKey: 'test:hud', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    // 开局未设 courage → 显示 0 / 10
+    expect(root.querySelector('.hud-label')?.textContent).toBe('勇气')
+    expect(root.querySelector('.hud-value')?.textContent).toBe('0 / 10')
+
+    // 空手：courage=1
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click()
+    expect(root.querySelector('.hud-value')?.textContent).toBe('1 / 10')
+    expect(root.querySelector<HTMLElement>('.hud-fill')?.style.width).toBe('10%')
+
+    // 无 hud 配置时不渲染 hud
+    const plain = document.createElement('div')
+    document.body.appendChild(plain)
+    mountTextAdventure(plain, makeStory(), { saveKey: 'test:hud2', storage })
+    ;(plain.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(plain.querySelector('.hud')).toBeNull()
+  })
+
+  it('有成就定义时标题屏出现成就入口，解锁后弹 toast，列表画面正确显示', () => {
+    const story = makeStory()
+    story.achievements = [
+      {
+        id: 'sword',
+        title: '持剑者',
+        description: '获得剑',
+        icon: '⚔️',
+        when: { op: 'has', var: '剑' },
+      },
+      {
+        id: 'hidden_one',
+        title: '隐藏成就',
+        description: '秘密',
+        hidden: true,
+        when: { op: 'eq', var: '#visited', value: 'unarmed' },
+      },
+    ]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage, map } = memoryStorage()
+
+    mountTextAdventure(root, story, { saveKey: 'test:ach', storage })
+    // 标题屏有成就按钮
+    const achBtn = root.querySelector<HTMLButtonElement>('[data-action="achievements"]')
+    expect(achBtn).not.toBeNull()
+
+    // 进入成就列表：全部锁定；隐藏成就显示 ???，普通成就显示标题
+    achBtn!.click()
+    expect(root.querySelectorAll('.ach-item').length).toBe(2)
+    const lockedTitles = [...root.querySelectorAll('.ach-locked .ach-title')].map(
+      (el) => el.textContent,
+    )
+    expect(lockedTitles).toContain('？？？') // hidden 成就锁定
+    expect(lockedTitles).toContain('持剑者') // 非隐藏成就显示标题
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.title-main')).not.toBeNull()
+
+    // 开始游戏拿剑 → 解锁 toast 出现
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click() // 拿剑
+    expect(root.querySelector('.achievement-toast')?.textContent).toContain('持剑者')
+    expect(map.get('test:ach')).toContain('sword') // 存档含成就
+
+    // 战斗到结局 → 返回标题 → 清除存档
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click() // 战斗
+    ;(root.querySelector('[data-action="title"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="clear"]') as HTMLButtonElement).click()
+
+    // 空手路线解锁隐藏成就后，列表画面显示其名称
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 空手
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 求饶 → 真相结局
+    ;(root.querySelector('[data-action="title"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="achievements"]') as HTMLButtonElement).click()
+    const titles = [...root.querySelectorAll('.ach-title')].map((el) => el.textContent)
+    expect(titles).toContain('隐藏成就')
+    expect(titles).toContain('持剑者')
+  })
+})
+
+describe('文本块与线索夹', () => {
+  /** 带文档与 blocks 的剧情 */
+  function makeDocStory() {
+    const story = makeStory()
+    story.documents = {
+      d_rules: {
+        id: 'd_rules',
+        title: '游客守则',
+        kind: 'rules',
+        text: '1. 兔子不会发出笑声。\n2. 若听见笑声，请离开。',
+      },
+      d_note: { id: 'd_note', title: '纸条', kind: 'note', text: '别相信员工手册。' },
+    }
+    // 用 blocks 渲染 start
+    story.nodes.start.text = ''
+    story.nodes.start.blocks = [
+      { type: 'title', title: '动物园入口', text: '动物园入口' },
+      { type: 'rules', title: '游客守则（节选）', text: '1. 兔子不会发出笑声。\n2. 不要喂食兔子。' },
+      { type: 'note', text: '（地上捡到的纸条，字迹潦草）' },
+    ]
+    story.nodes.start.choices = [
+      { label: '捡起地上的守则', target: 'armed', effects: { gainDocs: ['d_rules'] } },
+      { label: '捡起纸条', target: 'unarmed', effects: { gainDocs: ['d_note'] } },
+    ]
+    return story
+  }
+
+  it('blocks 分类型渲染（title/rules/note）', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, makeDocStory(), { saveKey: 'test:blocks', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect(root.querySelector('.block-title')?.textContent).toBe('动物园入口')
+    const rules = root.querySelector('.block-rules .block-body')?.textContent
+    expect(rules).toContain('1. 兔子不会发出笑声')
+    expect(root.querySelector('.block-note')).not.toBeNull()
+  })
+
+  it('获得线索后出现入口，可打开线索夹查看详情并返回', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, makeDocStory(), { saveKey: 'test:docs', storage })
+
+    // 开始游戏前无线索按钮
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-action="docs"]')).toBeNull()
+
+    // 捡守则 → 线索按钮出现
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    const docsBtn = root.querySelector<HTMLButtonElement>('[data-action="docs"]')
+    expect(docsBtn).not.toBeNull()
+    expect(docsBtn?.textContent).toContain('线索 1')
+
+    // 打开线索夹
+    docsBtn!.click()
+    expect(root.querySelector('.doc-item')?.textContent).toContain('游客守则')
+    expect(root.querySelector('.doc-kind')?.textContent).toBe('守则')
+
+    // 查看详情
+    ;(root.querySelector<HTMLButtonElement>('[data-doc]')!).click()
+    expect(root.querySelector('.block-head')?.textContent).toBe('游客守则')
+    expect(root.querySelector('.block-body')?.textContent).toContain('兔子不会发出笑声')
+
+    // 返回列表 → 返回游戏
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.doc-item')).not.toBeNull()
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.choice-btn')).not.toBeNull()
+  })
+
+  it('无文档剧情不显示线索入口', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, makeStory(), { saveKey: 'test:nodocs', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(root.querySelector('[data-action="docs"]')).toBeNull()
+  })
+})

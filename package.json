@@ -1,0 +1,24 @@
+{
+  "name": "ai-text-engine",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "给 AI 用的文字冒险引擎 + MCP 服务器：AI 通过 MCP 工具创建剧情、校验、导出单文件 HTML 游戏",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && node scripts/build-runtime.mjs",
+    "test": "vitest run",
+    "mcp": "node dist/mcp/server.js"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
+    "happy-dom": "^20.11.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

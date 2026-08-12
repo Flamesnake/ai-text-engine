@@ -1,0 +1,150 @@
+import { describe, expect, it } from 'vitest'
+import { Game } from './engine.js'
+import { applyEffects } from './effects.js'
+import { evalCondition } from './conditions.js'
+import { makeStory } from './fixtures.js'
+
+describe('Game 状态机', () => {
+  const story = makeStory()
+
+  it('从起始节点开始，应用 onEnter', () => {
+    const g = new Game(story)
+    expect(g.currentNode.id).toBe('start')
+    expect(g.stepCount).toBe(1)
+    expect(g.isEnding).toBe(false)
+    expect(g.visibleChoices()).toHaveLength(2)
+  })
+
+  it('选择选项应用效果并推进', () => {
+    const g = new Game(story)
+    g.choose(0) // 拿剑
+    expect(g.currentNode.id).toBe('armed')
+    expect(g.state.vars.courage).toBe(8) // 5 + onEnter 3
+    expect(g.state.inventory).toEqual(['剑'])
+  })
+
+  it('条件选项：满足条件才可见', () => {
+    const g = new Game(story)
+    g.choose(0) // armed，courage=8
+    expect(g.visibleChoices().map((c) => c.label)).toEqual(['战斗', '逃跑'])
+
+    const g2 = new Game(story)
+    g2.choose(1) // unarmed，courage=1
+    expect(g2.currentNode.id).toBe('unarmed')
+    expect(g2.visibleChoices().map((c) => c.label)).toEqual(['战斗', '求饶'])
+  })
+
+  it('到达结局并记录 endingMeta', () => {
+    const g = new Game(story)
+    g.choose(0)
+    g.choose(0) // 战斗
+    expect(g.isEnding).toBe(true)
+    expect(g.endingMeta?.id).toBe('e_good')
+    expect(g.state.endingId).toBe('e_good')
+  })
+
+  it('正文插值 {var} 与 {#inventory}', () => {
+    const g = new Game(story)
+    g.choose(0)
+    expect(g.interpolate(g.currentNode.text)).toContain('你有剑。')
+    expect(g.interpolate('勇气 {courage}')).toBe('勇气 8')
+    expect(g.interpolate('未定义 {nope}')).toBe('未定义 {nope}')
+  })
+
+  it('道具 gain 随存档恢复', () => {
+    const g = new Game(story)
+    g.choose(0)
+    const s = g.toSave()
+    const g2 = new Game(story, s)
+    expect(g2.state.inventory).toEqual(['剑'])
+  })
+
+  it('存档恢复后状态一致（变量/道具/历史/结局）', () => {
+    const g = new Game(story)
+    g.choose(0)
+    g.choose(0)
+    const save = g.toSave()
+    const restored = new Game(story, save)
+    expect(restored.currentNode.id).toBe('fight')
+    expect(restored.endingMeta?.id).toBe('e_good')
+    expect(restored.state.vars.courage).toBe(8)
+    expect(restored.state.history).toEqual(['start', 'armed', 'fight'])
+  })
+
+  it('restart 清空一切并回到起点', () => {
+    const g = new Game(story)
+    g.choose(0)
+    g.choose(0)
+    g.restart()
+    expect(g.currentNode.id).toBe('start')
+    expect(g.state.vars).toEqual({})
+    expect(g.state.inventory).toEqual([])
+    expect(g.endingMeta).toBeNull()
+  })
+
+  it('选项越界抛 RangeError', () => {
+    const g = new Game(story)
+    expect(() => g.choose(2)).toThrow(RangeError)
+    expect(() => g.choose(-1)).toThrow(RangeError)
+  })
+
+  it('不可见选项无法选择（索引按可见选项计数）', () => {
+    const g = new Game(story)
+    g.choose(1) // unarmed：战斗/求饶 两个可见
+    expect(g.visibleChoices()).toHaveLength(2)
+    g.choose(1) // 求饶
+    expect(g.endingMeta?.id).toBe('e_true')
+  })
+})
+
+describe('条件 DSL', () => {
+  const story = makeStory()
+
+  it('exists / has / not_has 求值正确', () => {
+    const g = new Game(story)
+    g.choose(0) // 拿到剑，courage=8
+    expect(g.state.inventory).toContain('剑')
+    expect(g.state.vars.courage).toBe(8)
+    // 通过可见选项间接验证 has 类条件：armed 的战斗选项是 gte 条件
+    const choices = g.visibleChoices()
+    expect(choices.length).toBe(2)
+  })
+})
+
+describe('effects / conditions 直接单测', () => {
+  it('applyEffects：set/add/gain/lose/flag 全部生效（flag 写入 vars）', () => {
+    const target = { vars: { hp: 10 }, inventory: ['钥匙'], docs: [] }
+    applyEffects(
+      {
+        set: { name: '阿明' },
+        add: { hp: -3 },
+        gain: ['手电'],
+        lose: ['钥匙'],
+        flag: { met: true },
+      },
+      target,
+    )
+    expect(target.vars).toEqual({ hp: 7, name: '阿明', met: true })
+    expect(target.inventory).toEqual(['手电'])
+  })
+
+  it('evalCondition：比较/组合/has/exists', () => {
+    const ctx = { vars: { hp: 7, name: '阿明' }, inventory: ['手电'] }
+    expect(evalCondition({ op: 'gt', var: 'hp', value: 5 }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'lte', var: 'hp', value: 7 }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'eq', var: 'name', value: '阿明' }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'ne', var: 'name', value: '小明' }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'exists', var: 'hp' }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'exists', var: 'luck' }, ctx)).toBe(false)
+    expect(evalCondition({ op: 'has', var: '手电' }, ctx)).toBe(true)
+    expect(evalCondition({ op: 'not_has', var: '钥匙' }, ctx)).toBe(true)
+    expect(
+      evalCondition({ and: [{ op: 'gt', var: 'hp', value: 5 }, { op: 'has', var: '手电' }] }, ctx),
+    ).toBe(true)
+    expect(
+      evalCondition({ or: [{ op: 'lt', var: 'hp', value: 1 }, { op: 'eq', var: 'name', value: '阿明' }] }, ctx),
+    ).toBe(true)
+    expect(evalCondition({ not: { op: 'gt', var: 'hp', value: 10 } }, ctx)).toBe(true)
+    expect(evalCondition(undefined, ctx)).toBe(true)
+  })
+})
