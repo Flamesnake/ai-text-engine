@@ -67,9 +67,37 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     })
   }
 
-  /** 节点卡片动画 class（node.fx） */
-  function cardFx(node: StoryNode): string {
-    return (node.fx ?? []).map((f) => `fx-${f}`).join(' ')
+  /** 节点卡片动画：返回 class 与内联 CSS 变量（幅度/频率由 FxSpec 控制） */
+  function cardFx(node: StoryNode): { cls: string; style: string } {
+    const cls: string[] = []
+    const vars: string[] = []
+    for (const item of node.fx ?? []) {
+      const spec = typeof item === 'string' ? { name: item } : item
+      cls.push(`fx-${spec.name}`)
+      const intensity = spec.intensity ?? 1
+      const speed = Math.max(0.1, spec.speed ?? 1)
+      const dur = (base: number) => `${(base / speed).toFixed(3)}s`
+      switch (spec.name) {
+        case 'shake':
+          vars.push(`--fx-shake-amp: ${(3 * intensity).toFixed(1)}px`)
+          vars.push(`--fx-shake-dur: ${dur(0.45)}`)
+          break
+        case 'flicker':
+          // intensity=1 最低亮度 0.35；越大越暗（剧烈），越小越接近 1（轻微闪烁）
+          vars.push(`--fx-flicker-min: ${Math.max(0.05, 1 - 0.65 * intensity).toFixed(2)}`)
+          vars.push(`--fx-flicker-dur: ${dur(1.3)}`)
+          break
+        case 'glitch':
+          vars.push(`--fx-glitch-amp: ${(2 * intensity).toFixed(1)}px`)
+          vars.push(`--fx-glitch-dur: ${dur(0.5)}`)
+          break
+        case 'pulse':
+          vars.push(`--fx-pulse-scale: ${(1 + 0.02 * intensity).toFixed(3)}`)
+          vars.push(`--fx-pulse-dur: ${dur(1.4)}`)
+          break
+      }
+    }
+    return { cls: cls.join(' '), style: vars.join('; ') }
   }
 
   /** 播放节点音效（node.sfx，未知名静默） */
@@ -176,6 +204,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     }
     const choices = game.visibleChoices()
     playNodeSfx(node)
+    const fx = cardFx(node)
     root.innerHTML = `
       <main class="screen game-screen">
         <header class="game-header">
@@ -186,7 +215,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </header>
         ${renderHud()}
         ${renderInventory(game.state.inventory)}
-        <section class="card ${cardFx(node)}">
+        <section class="card ${fx.cls}" style="${fx.style}">
           ${renderBody(node)}
           <div class="card-actions">
             ${choices
@@ -300,6 +329,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     }
     const node = game.currentNode
     playSfx(`ending_${ending.kind}` as SfxName)
+    const fx = cardFx(node)
     root.innerHTML = `
       <main class="screen game-screen">
         <header class="game-header">
@@ -308,7 +338,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           ${docsButton()}
           ${muteButtonHtml()}
         </header>
-        <section class="card card-ending ending-${ending.kind} ${cardFx(node)}">
+        <section class="card card-ending ending-${ending.kind} ${fx.cls}" style="${fx.style}">
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>
           ${renderBody(node)}

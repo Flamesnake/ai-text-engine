@@ -147,7 +147,11 @@ interface Condition {
   `heartbeat`（心跳）、`drone`（低频氛围）、`achievement`（成就）、`shock`（惊吓）、
   `ending_good` / `ending_bad` / `ending_true`（结局）；
 - 选项点击、成就解锁、线索翻页、结局自动播放对应音效；标题屏/游戏画面右上角 🔊 按钮可静音（偏好持久化）；
-- **动画**：`shake` 抖动 / `flicker` 闪烁 / `glitch` 毛刺 / `pulse` 脉动；尊重系统「减弱动态效果」设置。
+- **动画**（可调幅度/频率）：`shake` 抖动 / `flicker` 闪烁 / `glitch` 毛刺 / `pulse` 脉动；
+  支持带参数规格 `{ name, intensity?, speed? }`——`intensity` 幅度倍率（0.3=轻微，2=剧烈）、
+  `speed` 频率倍率（2=快一倍，0.5=慢一倍），默认 1（即原版参数）；
+  例如「不稳定的灯」用轻微闪烁：`"fx": [{ "name": "flicker", "intensity": 0.3 }]`；
+  尊重系统「减弱动态效果」设置。
 
 ## 规则怪谈玩法配方（违规度 + 天数循环）
 

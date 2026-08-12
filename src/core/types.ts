@@ -171,8 +171,11 @@ export interface StoryNode {
   blocks?: TextBlock[]
   /** 进入本节点时播放的音效名：click/page/heartbeat/drone/achievement/shock/ending_* */
   sfx?: string
-  /** 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse */
-  fx?: string[]
+  /**
+   * 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse，
+   * 或带参数的规格 { name, intensity?, speed? }：intensity 幅度倍率（0.3=轻微，2=剧烈），speed 频率倍率（2=快一倍，0.5=慢一倍），默认 1。
+   */
+  fx?: FxItem[]
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
   /** 结局节点必须携带 */
@@ -184,6 +187,17 @@ export interface StoryNode {
   /** 设计备注（仅开发用，不进入游戏渲染） */
   note?: string
 }
+
+/** 节点动画效果规格（fx 数组元素：效果名或带参数的规格） */
+export interface FxSpec {
+  name: 'shake' | 'flicker' | 'glitch' | 'pulse'
+  /** 幅度倍率（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
+  intensity?: number
+  /** 频率倍率（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
+  speed?: number
+}
+
+export type FxItem = FxSpec['name'] | FxSpec
 
 export interface StoryMeta {
   title: string

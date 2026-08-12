@@ -437,30 +437,30 @@ body {
 }
 .doc-title { letter-spacing: .06em; }
 
-/* 节点动画 fx */
-.fx-shake { animation: fx-shake .45s ease-in-out infinite; }
+/* 节点动画 fx（幅度/频率由 CSS 变量控制，runtime 按 FxSpec 注入） */
+.fx-shake { animation: fx-shake var(--fx-shake-dur, .45s) ease-in-out infinite; }
 @keyframes fx-shake {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-3px); }
-  75% { transform: translateX(3px); }
+  25% { transform: translateX(calc(var(--fx-shake-amp, 3px) * -1)); }
+  75% { transform: translateX(var(--fx-shake-amp, 3px)); }
 }
-.fx-flicker { animation: fx-flicker 1.3s steps(2) infinite; }
+.fx-flicker { animation: fx-flicker var(--fx-flicker-dur, 1.3s) steps(2) infinite; }
 @keyframes fx-flicker {
   0%, 100% { opacity: 1; }
-  50% { opacity: .35; }
+  50% { opacity: var(--fx-flicker-min, .35); }
 }
-.fx-glitch { animation: fx-glitch .5s steps(2) infinite; }
+.fx-glitch { animation: fx-glitch var(--fx-glitch-dur, .5s) steps(2) infinite; }
 @keyframes fx-glitch {
   0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-2px, 1px); }
-  40% { transform: translate(2px, -1px); }
-  60% { transform: translate(-1px, -1px); }
-  80% { transform: translate(1px, 1px); }
+  20% { transform: translate(calc(var(--fx-glitch-amp, 2px) * -1), 1px); }
+  40% { transform: translate(var(--fx-glitch-amp, 2px), -1px); }
+  60% { transform: translate(calc(var(--fx-glitch-amp, 2px) * -0.5), -1px); }
+  80% { transform: translate(calc(var(--fx-glitch-amp, 2px) * 0.5), 1px); }
 }
-.fx-pulse { animation: fx-pulse 1.4s ease-in-out infinite; }
+.fx-pulse { animation: fx-pulse var(--fx-pulse-dur, 1.4s) ease-in-out infinite; }
 @keyframes fx-pulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  50% { transform: scale(var(--fx-pulse-scale, 1.02)); }
 }
 @media (prefers-reduced-motion: reduce) {
   .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse { animation: none; }

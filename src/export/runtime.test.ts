@@ -291,7 +291,10 @@ describe('文本块与线索夹', () => {
 
   it('节点 fx 动画 class 生效，mute 按钮可切换', () => {
     const story = makeStory()
-    story.nodes.start.fx = ['shake', 'flicker']
+    story.nodes.start.fx = [
+      'shake', // 字符串：默认参数
+      { name: 'flicker', intensity: 0.3, speed: 2 }, // 参数化：轻微闪烁 + 快一倍
+    ]
     story.nodes.start.sfx = 'heartbeat' // 无 AudioContext 环境应静默不抛错
     const root = document.createElement('div')
     document.body.appendChild(root)
@@ -308,6 +311,11 @@ describe('文本块与线索夹', () => {
     const card = root.querySelector('.card')
     expect(card?.className).toContain('fx-shake')
     expect(card?.className).toContain('fx-flicker')
+    // 参数化 fx：内联 CSS 变量控制幅度/频率
+    const style = (card as HTMLElement)?.getAttribute('style') ?? ''
+    expect(style).toContain('--fx-shake-amp: 3.0px') // shake 默认强度 1 → 3px
+    expect(style).toContain('--fx-flicker-min: 0.80') // flicker intensity 0.3 → 最低亮度 0.80（轻微闪烁）
+    expect(style).toContain('--fx-flicker-dur: 0.650s') // speed 2 → 周期减半
     // 游戏画面也有 mute 按钮
     const mute = root.querySelector<HTMLElement>('[data-action="mute"]')
     expect(mute).not.toBeNull()

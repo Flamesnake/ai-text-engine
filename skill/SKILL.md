@@ -59,7 +59,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 文字冒险游戏。�
 - **效果** `Effects`：`set`（赋值）/ `add`（数值增减）/ `rand`（随机整数，`[{var,min,max}]`）/ `violation`（记录违规规则）/ `day`（推进天数）/ `gain` / `lose`（道具）/ `gainDocs`（线索）/ `flag`（旗标，与变量同命名空间）；
 - **条件** `Condition`：`op: eq|ne|gt|gte|lt|lte|exists|has|not_has`，可组合 `and` / `or` / `not`；
   `has`/`not_has` 检查道具；特殊变量 `#steps` / `#ending` / `#visited` / `#docs` / `#day`（天数）/ `#violated`（违反过某规则）；
-- **音效/动画**：节点 `sfx`（click/page/heartbeat/drone/achievement/shock/ending_*）与 `fx`（shake/flicker/glitch/pulse）；选项/成就/线索/结局自动播音效，右上角 🔊 可静音；
+- **音效/动画**：节点 `sfx`（click/page/heartbeat/drone/achievement/shock/ending_*）与 `fx`（shake/flicker/glitch/pulse，可带参数 `{name, intensity?, speed?}` 调幅度/频率）；选项/成就/线索/结局自动播音效，右上角 🔊 可静音；
 - **好感度**：普通数值变量（`add`/`set` 维护），`story_set_meta { hud: [{ var: "好感度", label: "好感度", max: 100 }] }` 显示进度条；HUD 支持 `var: "#day"` 显示天数；
 - **成就**：`{ id, title, description, icon?, hidden?, when }`，`when` 支持特殊变量；
 - **线索/文档**：`story_upsert_document { document: { id, title, text, kind } }` 定义，节点用 `effects.gainDocs: ["d_id"]` 收集，玩家可在线索夹查看；条件 `#docs` 判断是否已获得；
