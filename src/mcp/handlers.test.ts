@@ -230,3 +230,28 @@ describe('story_upsert_document / delete_document', () => {
     expect(res.validate.join('\n')).toContain('不存在的文档 "d_x"')
   })
 })
+
+describe('story_upsert_evidence / story_upsert_deduction', () => {
+  it('Agent 可幂等定义证据和推论，并从 story_get 读回', async () => {
+    await createTestProject()
+    const evidence = {
+      id: 'clock', title: '停住的时钟', description: '停在 22:10。', kind: 'observation' as const,
+    }
+    const deduction = {
+      id: 'false_alibi', statement: '不在场证明不成立', requires: { all: ['clock'] },
+    }
+
+    const first = await handlers.upsertEvidence({ title: '测试游戏', evidence }) as { created: boolean }
+    const second = await handlers.upsertEvidence({ title: '测试游戏', evidence }) as { created: boolean }
+    const ded = await handlers.upsertDeduction({ title: '测试游戏', deduction }) as { created: boolean }
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(false)
+    expect(ded.created).toBe(true)
+
+    const result = await handlers.getStory('测试游戏') as {
+      story: { evidence?: Record<string, unknown>; deductions?: Record<string, unknown> }
+    }
+    expect(result.story.evidence?.clock).toEqual(evidence)
+    expect(result.story.deductions?.false_alibi).toEqual(deduction)
+  })
+})

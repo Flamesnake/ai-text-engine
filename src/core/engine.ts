@@ -18,6 +18,8 @@ export class Game {
   constructor(story: Story, save?: GameState | null) {
     this.story = story
     if (save) {
+      // 轻量运行时校验：损坏/伪造的存档给出明确错误（浏览器端不引入 zod，见 assertSave）
+      this.assertSave(save)
       this.assertNode(save.nodeId)
       this.st = {
         nodeId: save.nodeId,
@@ -26,6 +28,8 @@ export class Game {
         vars: { ...save.vars },
         inventory: [...save.inventory],
         docs: [...(save.docs ?? [])],
+        evidence: [...(save.evidence ?? [])],
+        deductions: [...(save.deductions ?? [])],
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
         achievements: [...(save.achievements ?? [])],
@@ -40,6 +44,8 @@ export class Game {
         vars: {},
         inventory: [],
         docs: [],
+        evidence: [],
+        deductions: [],
         violations: [],
         day: 1,
         achievements: [],
@@ -74,11 +80,9 @@ export class Game {
     return this.st.history.length
   }
 
-  /** 应用条件过滤后当前可见的选项 */
+  /** 应用条件过滤后当前可见的选项（when 支持与成就相同的全部特殊变量） */
   visibleChoices(): Choice[] {
-    return this.currentNode.choices.filter((c) =>
-      evalCondition(c.when, { vars: this.st.vars, inventory: this.st.inventory }),
-    )
+    return this.currentNode.choices.filter((c) => evalCondition(c.when, this.conditionContext()))
   }
 
   /* ------------------------------ 动作 ------------------------------ */
@@ -90,13 +94,7 @@ export class Game {
       throw new RangeError(`选项索引越界：${index}（可见选项 0..${choices.length - 1}）`)
     }
     const choice = choices[index]
-    const target = {
-      vars: this.st.vars,
-      inventory: this.st.inventory,
-      docs: this.st.docs,
-      day: this.st.day,
-      violations: this.st.violations,
-    }
+    const target = this.effectTarget()
     applyEffects(choice.effects, target)
     this.st.day = target.day
     this.enter(choice.target)
@@ -111,6 +109,8 @@ export class Game {
       vars: {},
       inventory: [],
       docs: [],
+      evidence: [],
+      deductions: [],
       violations: [],
       day: 1,
       achievements: [],
@@ -151,6 +151,8 @@ export class Game {
       vars: { ...this.st.vars },
       inventory: [...this.st.inventory],
       docs: [...this.st.docs],
+      evidence: [...this.st.evidence],
+      deductions: [...this.st.deductions],
       violations: [...this.st.violations],
       day: this.st.day,
       achievements: [...this.st.achievements],
@@ -178,7 +180,7 @@ export class Game {
     if (!this.story.achievements?.length) return unlocked
     for (const ach of this.story.achievements) {
       if (this.st.achievements.includes(ach.id)) continue
-      if (evalCondition(ach.when, this.achievementContext())) {
+      if (evalCondition(ach.when, this.conditionContext())) {
         this.st.achievements.push(ach.id)
         unlocked.push(ach)
       }
@@ -186,7 +188,31 @@ export class Game {
     return unlocked
   }
 
-  private achievementContext(): ConditionContext {
+  /**
+   * 用玩家已获得且本次选中的证据确认推论。成功首次确认时应用 onConfirmed。
+   * 错误组合或未知推论返回 false，且不改变状态。
+   */
+  confirmDeduction(deductionId: string, selectedEvidenceIds: string[]): boolean {
+    const deduction = this.story.deductions?.[deductionId]
+    if (!deduction) return false
+    const selected = new Set(selectedEvidenceIds)
+    if ([...selected].some((id) => !this.st.evidence.includes(id))) return false
+    const allMet = (deduction.requires.all ?? []).every((id) => selected.has(id))
+    const anyMet = (deduction.requires.anyOf ?? []).every((group) =>
+      group.some((id) => selected.has(id)),
+    )
+    if (!allMet || !anyMet) return false
+    if (!this.st.deductions.includes(deductionId)) {
+      this.st.deductions.push(deductionId)
+      const target = this.effectTarget()
+      applyEffects(deduction.onConfirmed, target)
+      this.st.day = target.day
+      this.checkAchievements()
+    }
+    return true
+  }
+
+  private conditionContext(): ConditionContext {
     return {
       vars: this.st.vars,
       inventory: this.st.inventory,
@@ -196,27 +222,51 @@ export class Game {
       docs: this.st.docs,
       day: this.st.day,
       violations: this.st.violations,
+      evidence: this.st.evidence,
+      deductions: this.st.deductions,
     }
   }
 
   private applyOnEnter(nodeId: string): void {
     const node = this.story.nodes[nodeId]
     if (node?.onEnter) {
-      const target = {
-        vars: this.st.vars,
-        inventory: this.st.inventory,
-        docs: this.st.docs,
-        day: this.st.day,
-        violations: this.st.violations,
-      }
+      const target = this.effectTarget()
       applyEffects(node.onEnter, target)
       this.st.day = target.day
+    }
+  }
+
+  private effectTarget() {
+    return {
+      vars: this.st.vars,
+      inventory: this.st.inventory,
+      docs: this.st.docs,
+      day: this.st.day,
+      violations: this.st.violations,
+      evidence: this.st.evidence,
     }
   }
 
   private assertNode(nodeId: string): void {
     if (!this.story.nodes[nodeId]) {
       throw new Error(`剧情数据错误：引用不存在的节点 "${nodeId}"`)
+    }
+  }
+
+  /**
+   * 轻量存档校验（不引入 zod，保持浏览器 runtime bundle 轻量）：
+   * 关键字段类型错误时给出明确错误；缺失的可选字段由恢复逻辑给默认值。
+   */
+  private assertSave(save: GameState): void {
+    const bad: string[] = []
+    if (typeof save.nodeId !== 'string') bad.push('nodeId')
+    if (!Array.isArray(save.history) || !save.history.every((x) => typeof x === 'string')) bad.push('history')
+    if (save.vars === null || typeof save.vars !== 'object' || Array.isArray(save.vars)) bad.push('vars')
+    if (!Array.isArray(save.inventory) || !save.inventory.every((x) => typeof x === 'string')) bad.push('inventory')
+    if (save.day !== undefined && typeof save.day !== 'number') bad.push('day')
+    if (save.endingId !== undefined && save.endingId !== null && typeof save.endingId !== 'string') bad.push('endingId')
+    if (bad.length > 0) {
+      throw new Error(`存档数据无效（字段类型错误：${bad.join('、')}）`)
     }
   }
 }

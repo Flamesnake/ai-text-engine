@@ -1,11 +1,11 @@
 import type { Story, Vars } from './types.js'
 import { applyEffects } from './effects.js'
-import { evalCondition } from './conditions.js'
+import { evalCondition, type ConditionContext } from './conditions.js'
 
 /** 单个结局的模拟统计 */
 export interface EndingReach {
   endingId: string
-  /** 到达该结局的不同路径数（近似：按访问顺序去重） */
+  /** 到达该结局的不同路径数（近似：按访问顺序去重；随机分支按注入随机源各取一值） */
   paths: number
   /** 最短步数（从起始节点起） */
   minSteps: number
@@ -21,80 +21,160 @@ export interface WalkResult {
 }
 
 export interface WalkOptions {
-  /** 单节点最大模拟访问次数（防条件环爆炸），默认 12 */
+  /** 单条路径上单节点最大访问次数（防条件环爆炸），默认 12 */
   maxNodeVisits?: number
   /** 最大模拟深度，默认 200 */
   maxDepth?: number
+  /** 随机源（用于 rand 效果）。默认固定 0.5（取中间值），保证结果可复现 */
+  rand?: () => number
+  /** 单个场景最多探索的推论组合状态，默认 64；超过时截断并警告 */
+  maxDeductionVariants?: number
 }
 
 interface SimState {
   vars: Vars
   inventory: string[]
   docs: string[]
+  evidence: string[]
+  deductions: string[]
   violations: string[]
   day: number
+  /** 去重后的已访问节点（与 GameState.visited 语义一致，供 #visited 条件） */
+  visited: string[]
 }
 
 /**
- * 全路径模拟：从起始节点深度优先遍历所有可见选项，
- * 统计每个结局的到达路径数与最短步数，帮助 AI 判断分支覆盖是否完整。
+ * 受限、近似路径探索（原「全路径模拟」）：从起始节点深度优先遍历各分支，
+ * 统计每个结局的路径数与最短步数。
+ *
+ * 语义约定：
+ * - 每条路径独立维护节点访问计数，互不影响（分支汇合节点不会被其他路径误判为循环）；
+ * - 随机效果（rand）按注入的随机源取确定值（默认中间值），因此单次遍历
+ *   不能证明所有随机结果下结局都可达——若需覆盖，可多次以不同 rand 调用；
+ * - 条件求值使用与 Game 相同的完整上下文（含 #day/#docs/#violated/#steps/#visited）。
  */
 export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult {
   const maxNodeVisits = options?.maxNodeVisits ?? 12
   const maxDepth = options?.maxDepth ?? 200
+  const rand = options?.rand ?? (() => 0.5)
+  const maxDeductionVariants = options?.maxDeductionVariants ?? 64
 
   const counts: Record<string, number> = {}
   const minSteps: Record<string, number> = {}
   const warnings: string[] = []
+  const warned = new Set<string>()
+  const warn = (msg: string): void => {
+    if (!warned.has(msg)) {
+      warned.add(msg)
+      warnings.push(msg)
+    }
+  }
   let nodesVisited = 0
   let deepest = 0
-  const visits: Record<string, number> = {}
 
-  const initial: SimState = { vars: {}, inventory: [], docs: [], violations: [], day: 1 }
+  const initial: SimState = {
+    vars: {}, inventory: [], docs: [], evidence: [], deductions: [],
+    violations: [], day: 1, visited: [],
+  }
 
-  dfs(story, story.start, initial, 1, visits)
+  dfs(story, story.start, initial, 1, {})
 
   function dfs(
     st: Story,
     nodeId: string,
     state: SimState,
     depth: number,
+    // 本条路径上的节点访问计数（进入分支时已复制，各路径独立）
     vis: Record<string, number>,
   ): void {
     nodesVisited++
     deepest = Math.max(deepest, depth)
 
-    vis[nodeId] = (vis[nodeId] ?? 0) + 1
-    if (vis[nodeId] > maxNodeVisits) {
-      warnings.push(`节点 "${nodeId}" 被访问超过 ${maxNodeVisits} 次，疑似条件循环，已剪枝`)
-      return
-    }
     if (depth > maxDepth) {
-      warnings.push(`模拟深度超过 ${maxDepth}，已截断`)
+      warn(`模拟深度超过 ${maxDepth}，已截断`)
       return
     }
 
     const node = st.nodes[nodeId]
     if (!node) return
 
-    // 进入节点：应用 onEnter
+    // 进入节点：按路径累计访问计数（复制快照，不影响兄弟分支）
+    const nextVis = { ...vis }
+    const count = (nextVis[nodeId] ?? 0) + 1
+    nextVis[nodeId] = count
+    if (count > maxNodeVisits) {
+      warn(`节点 "${nodeId}" 在本路径被访问超过 ${maxNodeVisits} 次，疑似条件循环，已剪枝`)
+      return
+    }
+
+    // 应用 onEnter
     const s = cloneState(state)
-    applyEffects(node.onEnter, s)
+    if (!s.visited.includes(nodeId)) s.visited.push(nodeId)
+    applyEffects(node.onEnter, s, rand)
 
     if (node.choices.length === 0) {
       if (node.ending) {
         counts[node.ending.id] = (counts[node.ending.id] ?? 0) + 1
-        if (minSteps[node.ending.id] === undefined) minSteps[node.ending.id] = depth
+        // 记录最小步数（DFS 首达的不一定是最短路径）
+        if (minSteps[node.ending.id] === undefined || depth < minSteps[node.ending.id]) {
+          minSteps[node.ending.id] = depth
+        }
       }
       return
     }
 
-    const visible = node.choices.filter((c) => evalCondition(c.when, s))
-    for (const choice of visible) {
-      const s2 = cloneState(s)
-      applyEffects(choice.effects, s2)
-      dfs(st, choice.target, s2, depth + 1, vis)
+    // 线索板是场景外动作：同时探索“不确认”和所有当前可确认的推论组合。
+    // 这样推论解锁的选项不会被误报不可达，同时保留玩家暂不推理的路径。
+    for (const deductionState of deductionVariants(st, s)) {
+      const ctx: ConditionContext = {
+        vars: deductionState.vars,
+        inventory: deductionState.inventory,
+        steps: depth,
+        endingId: null,
+        visited: deductionState.visited,
+        docs: deductionState.docs,
+        day: deductionState.day,
+        violations: deductionState.violations,
+        evidence: deductionState.evidence,
+        deductions: deductionState.deductions,
+      }
+      const visible = node.choices.filter((c) => evalCondition(c.when, ctx))
+      for (const choice of visible) {
+        const s2 = cloneState(deductionState)
+        applyEffects(choice.effects, s2, rand)
+        dfs(st, choice.target, s2, depth + 1, nextVis)
+      }
     }
+  }
+
+  /** 枚举玩家在当前证据下可以选择确认的推论状态（含一个都不确认）。 */
+  function deductionVariants(st: Story, initialState: SimState): SimState[] {
+    const variants: SimState[] = [cloneState(initialState)]
+    const seen = new Set<string>([''])
+    for (let index = 0; index < variants.length; index++) {
+      const current = variants[index]
+      for (const deduction of Object.values(st.deductions ?? {})) {
+        if (current.deductions.includes(deduction.id)) continue
+        const owned = new Set(current.evidence)
+        const canConfirm =
+          (deduction.requires.all ?? []).every((id) => owned.has(id)) &&
+          (deduction.requires.anyOf ?? []).every((group) => group.some((id) => owned.has(id)))
+        if (!canConfirm) continue
+        const next = cloneState(current)
+        next.deductions.push(deduction.id)
+        applyEffects(deduction.onConfirmed, next, rand)
+        const key = [...next.deductions].sort().join('\u0000')
+        if (!seen.has(key)) {
+          if (variants.length >= maxDeductionVariants) {
+            warn(`节点推论组合超过 ${maxDeductionVariants} 种，已截断探索`)
+            return variants
+          }
+          seen.add(key)
+          variants.push(next)
+        }
+      }
+    }
+    return variants
   }
 
   const endings: EndingReach[] = Object.keys(counts)
@@ -117,7 +197,10 @@ function cloneState(s: SimState): SimState {
     vars: { ...s.vars },
     inventory: [...s.inventory],
     docs: [...s.docs],
+    evidence: [...s.evidence],
+    deductions: [...s.deductions],
     violations: [...s.violations],
     day: s.day,
+    visited: [...s.visited],
   }
 }

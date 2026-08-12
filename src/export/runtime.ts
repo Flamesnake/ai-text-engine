@@ -252,6 +252,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${evidenceBoardButton()}
           ${docsButton()}
           ${muteButtonHtml()}
         </header>
@@ -271,6 +272,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       </main>`
     bindChoices()
     bind('[data-action="docs"]', () => renderDocsList())
+    bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
     bindMute()
     const cardEl = root.querySelector<HTMLElement>('.card')
     if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
@@ -306,6 +308,52 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   function docsButton(): string {
     if (game.state.docs.length === 0 || !story.documents) return ''
     return `<button class="btn btn-ghost docs-btn" data-action="docs">线索 ${game.state.docs.length}</button>`
+  }
+
+  function evidenceBoardButton(): string {
+    if (game.state.evidence.length === 0 || !story.evidence || !story.deductions) return ''
+    return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">线索板 ${game.state.evidence.length}</button>`
+  }
+
+  /** 证据组合线索板：选择推论和证据，提交给 Game 的确定性推论接口。 */
+  function renderEvidenceBoard(resultMessage = ''): void {
+    clearUnstable()
+    const owned = game.state.evidence
+      .map((id) => story.evidence?.[id])
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    const deductions = Object.values(story.deductions ?? {})
+    root.innerHTML = `
+      <main class="screen game-screen">
+        <header class="game-header"><span class="game-title">线索板</span><span class="game-step">${owned.length} 条证据</span></header>
+        <section class="card deduction-board">
+          <h2 class="deduction-heading">待证明的推论</h2>
+          <div class="deduction-list">${deductions.map((deduction, index) => {
+            const confirmed = game.state.deductions.includes(deduction.id)
+            return `<label class="deduction-item ${confirmed ? 'deduction-confirmed' : ''}" data-deduction="${esc(deduction.id)}">
+              <input type="radio" name="deduction" value="${esc(deduction.id)}" ${index === 0 ? 'checked' : ''} ${confirmed ? 'disabled' : ''}/>
+              <span>${esc(deduction.statement)}${confirmed ? ' · 已成立' : ''}</span>
+            </label>`
+          }).join('')}</div>
+          <h2 class="deduction-heading">选择支持证据</h2>
+          <div class="evidence-list">${owned.map((evidence) => `<label class="evidence-item">
+            <input type="checkbox" data-evidence value="${esc(evidence.id)}"/>
+            <span><strong>${esc(evidence.title)}</strong><small>${esc(evidence.description)}</small></span>
+          </label>`).join('')}</div>
+          <p data-deduction-result class="deduction-result">${esc(resultMessage)}</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" data-action="confirm-deduction">验证推论</button>
+            <button class="btn" data-action="back">返回</button>
+          </div>
+        </section>
+      </main>`
+    bind('[data-action="back"]', () => renderNode())
+    bind('[data-action="confirm-deduction"]', () => {
+      const deductionId = root.querySelector<HTMLInputElement>('input[name="deduction"]:checked')?.value
+      const selected = [...root.querySelectorAll<HTMLInputElement>('[data-evidence]:checked')].map((input) => input.value)
+      const success = deductionId ? game.confirmDeduction(deductionId, selected) : false
+      if (success) save()
+      renderEvidenceBoard(success ? '推论成立。新的行动可能已经解锁。' : '证据不足，或这些证据无法支持该推论。')
+    })
   }
 
   /** 线索夹列表画面 */
@@ -381,6 +429,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${evidenceBoardButton()}
           ${docsButton()}
           ${muteButtonHtml()}
         </header>
@@ -395,6 +444,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </section>
       </main>`
     bind('[data-action="docs"]', () => renderDocsList())
+    bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
     bindMute()
     bind('[data-action="replay"]', () => {
       game = new Game(story)

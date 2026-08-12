@@ -111,6 +111,53 @@ describe('随机 / 违规 / 天数系统', () => {
     expect(g4.state.achievements).toContain('day3')
   })
 
+  it('#day / #docs / #violated / #steps 条件用于选项 when 时生效', () => {
+    const story: Story = {
+      meta: { title: '选项特殊条件' },
+      start: 'start',
+      endings: { e_1: { id: 'e_1', title: '终', kind: 'good' } },
+      documents: { doc_rule: { id: 'doc_rule', title: '守则', text: '…' } },
+      nodes: {
+        start: {
+          id: 'start',
+          text: 't',
+          // 开局即第 3 天、已获得文档、已违规
+          onEnter: { day: 2, gainDocs: ['doc_rule'], violation: ['r_ticket'] },
+          choices: [
+            { label: '已到第三天', target: 'end', when: { op: 'gte', var: '#day', value: 3 } },
+            { label: '已有守则', target: 'end', when: { op: 'eq', var: '#docs', value: 'doc_rule' } },
+            { label: '已违规', target: 'end', when: { op: 'eq', var: '#violated', value: 'r_ticket' } },
+            { label: '未到第五天', target: 'end', when: { op: 'lt', var: '#day', value: 5 } },
+            { label: '至少一步', target: 'end', when: { op: 'gte', var: '#steps', value: 1 } },
+          ],
+        },
+        end: { id: 'end', text: '终', choices: [], ending: { id: 'e_1', title: '终', kind: 'good' } },
+      },
+    }
+    const g = new Game(story)
+    expect(g.state.day).toBe(3)
+    expect(g.state.docs).toEqual(['doc_rule'])
+    expect(g.state.violations).toEqual(['r_ticket'])
+    expect(g.visibleChoices().map((c) => c.label)).toEqual([
+      '已到第三天',
+      '已有守则',
+      '已违规',
+      '未到第五天',
+      '至少一步',
+    ])
+
+    // 反向：状态不满足时对应选项被隐藏（修复前这些选项因上下文缺失而全部不可见）
+    const g2 = new Game({
+      ...story,
+      nodes: { ...story.nodes, start: { ...story.nodes.start, onEnter: undefined } },
+    })
+    expect(g2.state.day).toBe(1)
+    expect(g2.state.docs).toEqual([])
+    expect(g2.state.violations).toEqual([])
+    // 状态不满足时对应选项被隐藏（修复前这些选项因上下文缺失而全部不可见）
+    expect(g2.visibleChoices().map((c) => c.label)).toEqual(['未到第五天', '至少一步'])
+  })
+
   it('正文插值 {#day} 显示天数', () => {
     const g = new Game(makeMechanicsStory())
     g.choose(0)

@@ -101,4 +101,113 @@ describe('walkAllEndings 全路径模拟', () => {
     const result = walkAllEndings(story)
     expect(result.unreachableEndings).toContain('e_fake')
   })
+
+  it('分支汇合节点不会因其他路径的访问而被误判循环（访问计数按路径独立）', () => {
+    const story: Story = {
+      meta: { title: '菱形图' },
+      start: 'start',
+      endings: { e_end: { id: 'e_end', title: '终', kind: 'good' } },
+      nodes: {
+        start: {
+          id: 'start',
+          text: 't',
+          choices: [
+            { label: '左路', target: 'join' },
+            { label: '右路', target: 'join' },
+          ],
+        },
+        join: {
+          id: 'join',
+          text: '汇合',
+          choices: [{ label: '去终点', target: 'end' }],
+        },
+        end: {
+          id: 'end',
+          text: '终',
+          choices: [],
+          ending: { id: 'e_end', title: '终', kind: 'good' },
+        },
+      },
+    }
+    // maxNodeVisits=1：共享计数的旧实现会在第二条路径进入 join 时误剪枝
+    const result = walkAllEndings(story, { maxNodeVisits: 1 })
+    expect(result.warnings).toEqual([])
+    const end = result.endings.find((e) => e.endingId === 'e_end')!
+    expect(end.paths).toBe(2)
+  })
+
+  it('rand 效果按注入随机源取确定值，结果可复现', () => {
+    const story: Story = {
+      meta: { title: '随机分支' },
+      start: 'start',
+      endings: {
+        e_low: { id: 'e_low', title: '低', kind: 'bad' },
+        e_high: { id: 'e_high', title: '高', kind: 'good' },
+      },
+      nodes: {
+        start: {
+          id: 'start',
+          text: 't',
+          onEnter: { rand: [{ var: 'roll', min: 1, max: 10 }] },
+          choices: [
+            { label: '走高', target: 'high', when: { op: 'gte', var: 'roll', value: 5 } },
+            { label: '走低', target: 'low', when: { op: 'lt', var: 'roll', value: 5 } },
+          ],
+        },
+        high: { id: 'high', text: 'h', choices: [], ending: { id: 'e_high', title: '高', kind: 'good' } },
+        low: { id: 'low', text: 'l', choices: [], ending: { id: 'e_low', title: '低', kind: 'bad' } },
+      },
+    }
+    // rand()=0 → roll=1 → 低路径；rand()≈1 → roll=10 → 高路径
+    expect(walkAllEndings(story, { rand: () => 0 }).endings.map((e) => e.endingId)).toEqual(['e_low'])
+    expect(walkAllEndings(story, { rand: () => 0.999 }).endings.map((e) => e.endingId)).toEqual(['e_high'])
+    // 默认随机源固定为中间值，两次调用结果一致（不再依赖真实 Math.random）
+    const a = walkAllEndings(story)
+    const b = walkAllEndings(story)
+    expect(a).toEqual(b)
+    expect(a.endings.map((e) => e.endingId)).toEqual(['e_high']) // roll = floor(0.5*10)+1 = 6 ≥ 5
+  })
+
+  it('walk 模拟选项的 #day/#docs/#violated 条件（与 Game 行为一致）', () => {
+    const story: Story = {
+      meta: { title: '条件选项模拟' },
+      start: 'start',
+      endings: { e_end: { id: 'e_end', title: '终', kind: 'good' } },
+      documents: { doc_rule: { id: 'doc_rule', title: '守则', text: '…' } },
+      nodes: {
+        start: {
+          id: 'start',
+          text: 't',
+          choices: [
+            { label: '等两天', target: 'later', effects: { day: 2 } },
+            { label: '拿守则', target: 'with_doc', effects: { gainDocs: ['doc_rule'] } },
+            { label: '回望起点', target: 'end', when: { op: 'eq', var: '#visited', value: 'start' } },
+          ],
+        },
+        later: {
+          id: 'later',
+          text: '第 {#day} 天',
+          choices: [{ label: '第三天行动', target: 'end', when: { op: 'gte', var: '#day', value: 3 } }],
+        },
+        with_doc: {
+          id: 'with_doc',
+          text: '有守则',
+          choices: [{ label: '读守则', target: 'end', when: { op: 'eq', var: '#docs', value: 'doc_rule' } }],
+        },
+        end: {
+          id: 'end',
+          text: '终',
+          choices: [],
+          ending: { id: 'e_end', title: '终', kind: 'good' },
+        },
+      },
+    }
+    const result = walkAllEndings(story)
+    expect(result.warnings).toEqual([])
+    expect(result.unreachableEndings).toEqual([])
+    const end = result.endings.find((e) => e.endingId === 'e_end')!
+    // start→end（#visited）、start→later→end（#day）、start→with_doc→end（#docs）三条路径
+    expect(end.paths).toBe(3)
+    expect(end.minSteps).toBe(2)
+  })
 })

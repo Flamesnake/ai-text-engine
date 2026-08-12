@@ -23,10 +23,11 @@ export function validate(story: Story): string[] {
   const writtenVars = new Set<string>()
   const writtenItems = new Set<string>()
   const writtenDocs = new Set<string>()
+  const gainedEvidence = new Set<string>()
   for (const node of Object.values(story.nodes)) {
-    collectEffects(node.onEnter, writtenVars, writtenItems, writtenDocs)
+    collectEffects(node.onEnter, writtenVars, writtenItems, writtenDocs, gainedEvidence)
     for (const choice of node.choices) {
-      collectEffects(choice.effects, writtenVars, writtenItems, writtenDocs)
+      collectEffects(choice.effects, writtenVars, writtenItems, writtenDocs, gainedEvidence)
       if (choice.target && !story.nodes[choice.target]) {
         problems.push(
           `节点 "${node.id}" 的选项「${choice.label}」指向不存在的节点 "${choice.target}"`,
@@ -67,6 +68,33 @@ export function validate(story: Story): string[] {
     }
   }
 
+  // 证据与推论：定义完整、所有引用存在、推论至少有一项证据要求
+  for (const evidenceId of gainedEvidence) {
+    if (!story.evidence?.[evidenceId]) {
+      problems.push(`gainEvidence 引用了不存在的证据 "${evidenceId}"`)
+    }
+  }
+  for (const [evidenceId, evidence] of Object.entries(story.evidence ?? {})) {
+    if (evidence.id !== evidenceId) problems.push(`证据键 "${evidenceId}" 与 id "${evidence.id}" 不一致`)
+    if (!evidence.title) problems.push(`证据 "${evidenceId}" 缺少 title`)
+    if (!evidence.description) problems.push(`证据 "${evidenceId}" 缺少 description`)
+  }
+  for (const [deductionId, deduction] of Object.entries(story.deductions ?? {})) {
+    if (deduction.id !== deductionId) problems.push(`推论键 "${deductionId}" 与 id "${deduction.id}" 不一致`)
+    if (!deduction.statement) problems.push(`推论 "${deductionId}" 缺少 statement`)
+    const refs = [
+      ...(deduction.requires.all ?? []),
+      ...(deduction.requires.anyOf ?? []).flat(),
+    ]
+    if (refs.length === 0) problems.push(`推论 "${deductionId}" 没有任何证据要求`)
+    for (const evidenceId of new Set(refs)) {
+      if (!story.evidence?.[evidenceId]) {
+        problems.push(`推论 "${deductionId}" 引用了不存在的证据 "${evidenceId}"`)
+      }
+    }
+    collectEffects(deduction.onConfirmed, writtenVars, writtenItems, writtenDocs, gainedEvidence)
+  }
+
   // 结局表孤儿条目
   for (const endId of Object.keys(story.endings)) {
     const used = Object.values(story.nodes).some((n) => n.ending?.id === endId)
@@ -96,6 +124,12 @@ export function validate(story: Story): string[] {
   for (const node of Object.values(story.nodes)) {
     for (const choice of node.choices) {
       if (choice.when) {
+        for (const ref of collectSpecialRefs(choice.when, '#evidence')) {
+          if (!story.evidence?.[ref]) problems.push(`条件引用了不存在的证据 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(choice.when, '#deduction')) {
+          if (!story.deductions?.[ref]) problems.push(`条件引用了不存在的推论 "${ref}"`)
+        }
         for (const v of collectConditionVars(choice.when)) {
           if (!writtenVars.has(v) && !writtenItems.has(v)) {
             problems.push(
@@ -144,6 +178,7 @@ function collectEffects(
   vars: Set<string>,
   items: Set<string>,
   docs?: Set<string>,
+  evidence?: Set<string>,
 ): void {
   if (!effects) return
   for (const k of Object.keys(effects.set ?? {})) vars.add(k)
@@ -152,6 +187,7 @@ function collectEffects(
   for (const item of effects.gain ?? []) items.add(item)
   for (const item of effects.lose ?? []) items.add(item)
   for (const d of effects.gainDocs ?? []) docs?.add(d)
+  for (const id of effects.gainEvidence ?? []) evidence?.add(id)
   for (const r of effects.rand ?? []) vars.add(r.var)
 }
 
@@ -166,5 +202,18 @@ function collectConditionVars(cond: Condition): string[] {
   for (const c of cond.and ?? []) out.push(...collectConditionVars(c))
   for (const c of cond.or ?? []) out.push(...collectConditionVars(c))
   if (cond.not) out.push(...collectConditionVars(cond.not))
+  return out
+}
+
+function collectSpecialRefs(cond: Condition, specialVar: string): string[] {
+  const out: string[] = []
+  if (
+    cond.var === specialVar &&
+    (cond.op === 'eq' || cond.op === 'ne') &&
+    cond.value !== undefined
+  ) out.push(String(cond.value))
+  for (const child of cond.and ?? []) out.push(...collectSpecialRefs(child, specialVar))
+  for (const child of cond.or ?? []) out.push(...collectSpecialRefs(child, specialVar))
+  if (cond.not) out.push(...collectSpecialRefs(cond.not, specialVar))
   return out
 }

@@ -16,6 +16,8 @@ export interface ConditionContext {
   day?: number
   /** 已违反的规则 id */
   violations?: string[]
+  evidence?: string[]
+  deductions?: string[]
 }
 
 /** 特殊变量（以 # 开头）：#steps / #ending / #visited */
@@ -103,6 +105,14 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     case '#violated': {
       const has =
         cond.value !== undefined && (ctx.violations ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#evidence': {
+      const has = cond.value !== undefined && (ctx.evidence ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#deduction': {
+      const has = cond.value !== undefined && (ctx.deductions ?? []).includes(String(cond.value))
       return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
     }
     default:

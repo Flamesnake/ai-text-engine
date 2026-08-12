@@ -2,6 +2,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import * as handlers from './handlers.js'
+import {
+  AchievementSchema,
+  HudStatSchema,
+  StoryDocumentSchema,
+  StoryNodeSchema,
+  ThemeConfigSchema,
+  EvidenceSchema,
+  DeductionSchema,
+} from '../core/schema.js'
 
 /**
  * ai-text-engine MCP 服务器（stdio）。
@@ -50,7 +59,7 @@ server.tool(
 server.tool(
   'story_upsert_node',
   '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, text, choices[], ending?, onEnter?, tags?, note?}。写入后自动返回校验结果。',
-  { title: z.string(), node: z.any() },
+  { title: z.string(), node: StoryNodeSchema },
   wrap((args) => handlers.upsertNode(args)),
 )
 
@@ -74,7 +83,7 @@ server.tool(
 
 server.tool(
   'story_validate',
-  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义）并附全路径模拟统计（各结局可达路径与最短步数）。',
+  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义）并附路径探索模拟统计（各结局可达路径与最短步数）。',
   { title: z.string() },
   wrap((args) => handlers.validateStory(args.title)),
 )
@@ -82,7 +91,7 @@ server.tool(
 server.tool(
   'story_upsert_achievement',
   '创建或覆盖一个成就定义（按 achievement.id）。achievement: {id, title, description, icon?, hidden?, when}，when 支持 #steps/#ending/#visited 特殊变量。',
-  { title: z.string(), achievement: z.any() },
+  { title: z.string(), achievement: AchievementSchema },
   wrap((args) => handlers.upsertAchievement(args)),
 )
 
@@ -96,7 +105,7 @@ server.tool(
 server.tool(
   'story_upsert_document',
   '创建或覆盖一个线索/文档定义（按 document.id）。document: {id, title, text, kind?: rules|note|letter|doc}，节点用 effects.gainDocs 收集，玩家可在线索夹查看。',
-  { title: z.string(), document: z.any() },
+  { title: z.string(), document: StoryDocumentSchema },
   wrap((args) => handlers.upsertDocument(args)),
 )
 
@@ -108,8 +117,36 @@ server.tool(
 )
 
 server.tool(
+  'story_upsert_evidence',
+  '创建或覆盖一条证据定义。节点用 effects.gainEvidence 获得证据，玩家可在线索板组合证据。',
+  { title: z.string(), evidence: EvidenceSchema },
+  wrap((args) => handlers.upsertEvidence(args)),
+)
+
+server.tool(
+  'story_delete_evidence',
+  '删除一条证据定义；删除后请根据校验结果清理引用。',
+  { title: z.string(), evidenceId: z.string() },
+  wrap((args) => handlers.deleteEvidence(args)),
+)
+
+server.tool(
+  'story_upsert_deduction',
+  '创建或覆盖一个推论定义。requires.all 要求全部证据，requires.anyOf 的每组要求至少一条。',
+  { title: z.string(), deduction: DeductionSchema },
+  wrap((args) => handlers.upsertDeduction(args)),
+)
+
+server.tool(
+  'story_delete_deduction',
+  '删除一个推论定义。',
+  { title: z.string(), deductionId: z.string() },
+  wrap((args) => handlers.deleteDeduction(args)),
+)
+
+server.tool(
   'story_walk',
-  '全路径模拟：统计每个结局的到达路径数与最短步数、未到达的结局、疑似条件循环警告。',
+  '路径探索模拟：统计每个结局的到达路径数与最短步数、未到达的结局、疑似条件循环警告。',
   { title: z.string() },
   wrap((args) => handlers.validateStory(args.title)),
 )
@@ -138,8 +175,8 @@ server.tool(
     title: z.string(),
     subtitle: z.string().optional(),
     author: z.string().optional(),
-    theme: z.any().optional(),
-    hud: z.any().optional(),
+    theme: z.union([z.string(), ThemeConfigSchema]).optional(),
+    hud: z.array(HudStatSchema).optional(),
   },
   wrap((args) => handlers.setMeta(args)),
 )

@@ -1,9 +1,12 @@
-import type { Achievement, HudStat, StoryDocument, StoryNode, ThemeConfig } from '../core/types.js'
+import type {
+  Achievement, Deduction, Evidence, HudStat, StoryDocument, StoryNode, ThemeConfig,
+} from '../core/types.js'
 import { validate } from '../core/validate.js'
 import { walkAllEndings } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
 import * as projects from './projects.js'
+import { ProjectError } from './projects.js'
 
 /**
  * MCP 工具实现（与 transport 解耦，可直接单测）。
@@ -18,7 +21,11 @@ export interface NewProjectArgs {
 
 export async function newProject(args: NewProjectArgs): Promise<unknown> {
   if (!args.title?.trim()) throw new Error('title 不能为空')
-  const existing = await projects.loadStory(args.title).catch(() => null)
+  // 仅「不存在」视为可新建；数据损坏等错误原样抛出，不再伪装成不存在
+  const existing = await projects.loadStory(args.title).catch((err: unknown) => {
+    if (err instanceof ProjectError && err.code === 'NOT_FOUND') return null
+    throw err
+  })
   if (existing) {
     return {
       ok: true,
@@ -32,12 +39,12 @@ export async function newProject(args: NewProjectArgs): Promise<unknown> {
     subtitle: args.subtitle,
     author: args.author,
   })
-  await projects.saveStory(story)
+  const dir = await projects.saveStory(story)
   return {
     ok: true,
     existed: false,
     message: `已创建项目 "${story.meta.title}"`,
-    path: projects.storyPath(story.meta.title),
+    path: path.join(dir, 'story.json'),
     nodeCount: Object.keys(story.nodes).length,
   }
 }
@@ -206,7 +213,7 @@ export async function exportStory(args: ExportArgs): Promise<unknown> {
   }
   const result = await exportToHtml(story, {
     // 默认导出到项目目录下，与项目存储根保持一致
-    outputDir: args.outputDir ?? path.join(projects.projectDir(args.title), 'dist'),
+    outputDir: args.outputDir ?? path.join(await projects.resolveProjectDir(args.title), 'dist'),
   })
   return {
     ok: true,
@@ -319,20 +326,69 @@ export async function deleteDocument(args: {
   }
 }
 
+export async function upsertEvidence(args: { title: string; evidence: Evidence }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.evidence?.id) throw new Error('evidence.id 不能为空')
+  story.evidence ??= {}
+  const created = !story.evidence[args.evidence.id]
+  story.evidence[args.evidence.id] = args.evidence
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, evidenceId: args.evidence.id,
+    count: Object.keys(story.evidence).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteEvidence(args: { title: string; evidenceId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.evidence ??= {}
+  if (!story.evidence[args.evidenceId]) return { ok: true, deleted: false }
+  delete story.evidence[args.evidenceId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, evidenceId: args.evidenceId, validate: problems, validatePass: problems.length === 0 }
+}
+
+export async function upsertDeduction(args: { title: string; deduction: Deduction }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.deduction?.id) throw new Error('deduction.id 不能为空')
+  story.deductions ??= {}
+  const created = !story.deductions[args.deduction.id]
+  story.deductions[args.deduction.id] = args.deduction
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, deductionId: args.deduction.id,
+    count: Object.keys(story.deductions).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteDeduction(args: { title: string; deductionId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.deductions ??= {}
+  if (!story.deductions[args.deductionId]) return { ok: true, deleted: false }
+  delete story.deductions[args.deductionId]
+  await projects.saveStory(story)
+  return { ok: true, deleted: true, deductionId: args.deductionId }
+}
+
 export async function listProjects(): Promise<unknown> {
-  const names = await projects.listProjects()
+  const refs = await projects.listProjects()
   const detailed = []
-  for (const name of names) {
+  for (const ref of refs) {
     try {
-      const story = await projects.loadStory(name)
+      const story = await projects.loadStory(ref.title)
       detailed.push({
-        name,
+        name: ref.dir,
         title: story.meta.title,
         nodes: Object.keys(story.nodes).length,
         endings: Object.keys(story.endings).length,
       })
     } catch {
-      detailed.push({ name })
+      detailed.push({ name: ref.dir, title: ref.title })
     }
   }
   return { ok: true, projects: detailed }
@@ -355,6 +411,10 @@ export const tools = {
     deleteAchievement(args),
   story_upsert_document: (args: UpsertDocumentArgs) => upsertDocument(args),
   story_delete_document: (args: { title: string; documentId: string }) => deleteDocument(args),
+  story_upsert_evidence: (args: { title: string; evidence: Evidence }) => upsertEvidence(args),
+  story_delete_evidence: (args: { title: string; evidenceId: string }) => deleteEvidence(args),
+  story_upsert_deduction: (args: { title: string; deduction: Deduction }) => upsertDeduction(args),
+  story_delete_deduction: (args: { title: string; deductionId: string }) => deleteDeduction(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
   story_walk: (args: { title: string }) => validateStory(args.title),
   story_graph: (args: { title: string }) => graph(args.title),

@@ -69,8 +69,38 @@ export interface Effects {
   lose?: string[]
   /** 获得线索/文档（进入文档夹） */
   gainDocs?: string[]
+  /** 获得证据（进入线索板；按 id 去重） */
+  gainEvidence?: string[]
   /** 设置旗标（与 set 语义相同，仅作语义区分） */
   flag?: Record<string, boolean>
+}
+
+/* ------------------------------ 证据 / 推论 ------------------------------ */
+
+export type EvidenceKind = 'document' | 'object' | 'testimony' | 'observation'
+
+export interface Evidence {
+  id: string
+  title: string
+  description: string
+  kind?: EvidenceKind
+  source?: string
+}
+
+export interface DeductionRequirement {
+  /** 必须全部选中的证据 */
+  all?: string[]
+  /** 每组至少选中一条证据 */
+  anyOf?: string[][]
+}
+
+export interface Deduction {
+  id: string
+  statement: string
+  description?: string
+  requires: DeductionRequirement
+  /** 推论首次确认时生效 */
+  onConfirmed?: Effects
 }
 
 /* ------------------------------ 文本块 / 文档线索 ------------------------------ */
@@ -90,7 +120,8 @@ export interface TextBlock {
 export interface StoryDocument {
   id: string
   title: string
-  kind?: TextBlockType
+  /** 展示类型：para 普通 / title 标题 / rules 规则 / note 便条 / letter 信件 / doc 文档（默认） */
+  kind?: TextBlockType | 'doc'
   text: string
 }
 
@@ -222,6 +253,10 @@ export interface Story {
   achievements?: Achievement[]
   /** 线索/文档表（可选）：被 gainDocs 收集并可在文档夹查看 */
   documents?: Record<string, StoryDocument>
+  /** 可收集并用于推理的证据 */
+  evidence?: Record<string, Evidence>
+  /** 玩家可通过证据组合确认的推论 */
+  deductions?: Record<string, Deduction>
 }
 
 /* ------------------------------ 运行时状态 ------------------------------ */
@@ -235,6 +270,10 @@ export interface GameState {
   inventory: string[]
   /** 已获得的线索/文档 id */
   docs: string[]
+  /** 已获得的证据 id */
+  evidence: string[]
+  /** 已确认的推论 id */
+  deductions: string[]
   /** 已违反的规则 id（规则怪谈「违规度」） */
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */

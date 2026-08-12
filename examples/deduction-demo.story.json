@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "title": "停在十点十分的钟",
+    "subtitle": "一个证据组合推理样例",
+    "version": "0.2.0",
+    "theme": "dark"
+  },
+  "start": "hall",
+  "evidence": {
+    "stopped_clock": {
+      "id": "stopped_clock",
+      "title": "停住的厨房时钟",
+      "description": "厨房时钟停在 22:10，后盖有刚被打开的痕迹。",
+      "kind": "observation",
+      "source": "kitchen"
+    },
+    "maid_testimony": {
+      "id": "maid_testimony",
+      "title": "女仆的证词",
+      "description": "女仆确认管家在 22:20 才从走廊方向回到厨房。",
+      "kind": "testimony",
+      "source": "maid_room"
+    }
+  },
+  "deductions": {
+    "false_alibi": {
+      "id": "false_alibi",
+      "statement": "管家的厨房不在场证明不成立",
+      "description": "时钟显示的时间不能证明管家当时在厨房。",
+      "requires": {
+        "all": ["stopped_clock", "maid_testimony"]
+      }
+    }
+  },
+  "nodes": {
+    "hall": {
+      "id": "hall",
+      "text": "暴雨封住了山路。管家坚称停电时自己一直待在厨房。你必须在天亮前判断他是否说谎。",
+      "choices": [
+        { "label": "检查厨房", "target": "kitchen" },
+        { "label": "询问女仆", "target": "maid_room" },
+        {
+          "label": "揭穿管家的不在场证明",
+          "target": "truth",
+          "when": { "op": "eq", "var": "#deduction", "value": "false_alibi" }
+        },
+        { "label": "证据不足，结束调查", "target": "unresolved" }
+      ]
+    },
+    "kitchen": {
+      "id": "kitchen",
+      "text": "厨房时钟停在十点十分。后盖边缘有新鲜划痕，指针显然可以被人为拨动。",
+      "onEnter": { "gainEvidence": ["stopped_clock"] },
+      "choices": [{ "label": "回到大厅", "target": "hall" }]
+    },
+    "maid_room": {
+      "id": "maid_room",
+      "text": "女仆迟疑片刻：\n“我在走廊看见管家。他十点二十分才回厨房，还让我别告诉任何人。”",
+      "onEnter": { "gainEvidence": ["maid_testimony"] },
+      "choices": [{ "label": "回到大厅", "target": "hall" }]
+    },
+    "truth": {
+      "id": "truth",
+      "text": "你把时钟和证词并排放在桌上。管家无法再用那只被拨慢的钟证明自己的行踪。真正的审问，现在才开始。",
+      "choices": [],
+      "ending": { "id": "e_truth", "title": "破裂的不在场证明", "kind": "true" }
+    },
+    "unresolved": {
+      "id": "unresolved",
+      "text": "天亮后，道路恢复通行。缺少完整推论的你只能让所有人离开。",
+      "choices": [],
+      "ending": { "id": "e_unresolved", "title": "雨停之后", "kind": "bad" }
+    }
+  },
+  "endings": {
+    "e_truth": { "id": "e_truth", "title": "破裂的不在场证明", "kind": "true" },
+    "e_unresolved": { "id": "e_unresolved", "title": "雨停之后", "kind": "bad" }
+  }
+}

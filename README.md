@@ -7,7 +7,7 @@
 - **通用机制**：变量 / 道具 / 旗标 / 条件选项 / 节点进入效果，够做悬疑、RPG、怪谈等题材；
 - **单文件导出**：`story_export` 产出一个自包含 `index.html`，双击即玩、可发任何人、零依赖；
 - **强校验**：断链、不可达节点、结局登记、变量拼写错误都会被自动发现；
-- **全路径模拟**：自动遍历所有分支，报告每个结局的可达路径数与最短步数。
+- **路径探索模拟**：深度遍历各分支，报告每个结局的可达路径数与最短步数（近似探索：随机分支取确定中间值，可注入随机源多次探索覆盖）。
 
 ## 快速开始
 
@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 66 个测试（vitest）
+npm test             # 99 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
@@ -43,7 +43,7 @@ npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ### 验证
 
 ```bash
-node scripts/verify-mcp.mjs      # stdio 握手 + 工具清单（应输出 VERIFY OK，11 个工具）
+node scripts/verify-mcp.mjs      # stdio 握手 + 工具清单（应输出 VERIFY OK）
 node scripts/demo.mjs            # 端到端演示：AI 全流程构建《迷雾车站》并导出
 node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
 ```
@@ -59,8 +59,10 @@ node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
 | `story_delete_ending` | 从结局表删除结局（被节点使用时拒绝） |
 | `story_upsert_achievement` / `story_delete_achievement` | 添加/删除成就定义 |
 | `story_upsert_document` / `story_delete_document` | 添加/删除线索/文档（规则守则/便条/信件，可被收集查看） |
-| `story_validate` | 校验 + 全路径模拟（结局覆盖统计） |
-| `story_walk` | 全路径模拟（各结局路径数 / 最短步数 / 未到达结局） |
+| `story_upsert_evidence` / `story_delete_evidence` | 添加/删除可用于推理的证据 |
+| `story_upsert_deduction` / `story_delete_deduction` | 添加/删除证据组合推论 |
+| `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
+| `story_walk` | 路径探索模拟（各结局路径数 / 最短步数 / 未到达结局） |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
 | `story_export` | 导出单文件 HTML（校验不通过时拒绝） |
 | `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** |
@@ -105,6 +107,7 @@ interface Effects {
   gain?: string[]                                  // 获得道具
   lose?: string[]                                  // 失去道具
   gainDocs?: string[]                              // 获得线索/文档
+  gainEvidence?: string[]                          // 获得推理证据
   flag?: Record<string, boolean>                   // 旗标（与变量同命名空间）
 }
 
@@ -124,7 +127,8 @@ interface Condition {
 - 条件 `exists`：检查变量是否已定义；其余比较符与 `vars[var]` 比较；
 - **旗标与变量同命名空间**（`flag` 效果写进 `vars`），条件可直接引用；
 - **特殊变量**：`#steps`（步数）、`#ending`（结局 id）、`#visited`（访问过某节点）、
-  `#docs`（获得过某线索）、`#day`（当前天数，数值比较）、`#violated`（违反过某规则，eq 判断）；
+  `#docs`（获得过某文档）、`#evidence`（获得过某证据）、`#deduction`（已确认某推论）、
+  `#day`（当前天数，数值比较）、`#violated`（违反过某规则，eq 判断）；
 - 结局节点：`choices: []` 且带 `ending`；选项的 `target` 必须指向存在的节点；
 - 正文/选项文案中的 `{未写入变量}` 会被 `story_validate` 报告（疑似拼写错误）；
 - 正文插值还支持 `{#day}`（显示天数）。
@@ -223,6 +227,30 @@ blocks: [
 块类型：`title` 标题 / `para` 段落 / `rules` 规则清单（等宽金字）/ `note` 便条（斜体灰）/ `letter` 信件。
 配合线索夹，即可还原《动物园规则怪谈》式「多份矛盾守则 + 玩家自行推理」的玩法。
 
+## 证据组合推理
+
+推理玩法区分三个概念：Document 是可阅读载体，Evidence 是可用于论证的材料，Deduction 是玩家在线索板用证据确认的命题。
+
+```ts
+interface Evidence {
+  id: string
+  title: string
+  description: string
+  kind?: 'document' | 'object' | 'testimony' | 'observation'
+  source?: string
+}
+
+interface Deduction {
+  id: string
+  statement: string
+  description?: string
+  requires: { all?: string[]; anyOf?: string[][] }
+  onConfirmed?: Effects
+}
+```
+
+节点用 `gainEvidence` 发放证据。玩家在线索板选择证据组合；推论成立后可用 `#deduction` 条件解锁对话、场景或结局。完整设计约定见 `docs/deduction-mvp.md`，可运行样例见 `examples/deduction-demo.story.json`。
+
 ## AI 使用指引（典型工作流）
 
 1. `story_new { title, subtitle }` — 创建项目（自带 start + 示例结局骨架）；
@@ -230,7 +258,7 @@ blocks: [
    — 清掉示例骨架（或用 `story_upsert_node` 覆盖 `start` 节点）；
 3. `story_upsert_node { node }` × N — 逐个写节点（先写节点再统一校验，中途断链属正常）；
 4. `story_graph { title }` — 用 mermaid 检查分支结构；
-5. `story_validate { title }` — 校验 + 全路径模拟，确认所有结局可达、无断链；
+5. `story_validate { title }` — 校验 + 路径探索模拟，确认所有结局可达、无断链；
 6. `story_export { title }` — 导出单文件 HTML；把 `outputPath` 交给用户即可。
 
 示例成品：《迷雾车站》（10 节点 / 3 结局，含条件选项、道具「旧伞」、旗标、线索文档与规则文本块），
@@ -243,13 +271,15 @@ blocks: [
 src/
 ├── core/          # 引擎核心（纯逻辑，无 DOM）
 │   ├── types.ts   #   数据模型
+│   ├── schema.ts  #   共享 Story Schema（zod 校验 / 版本迁移）
 │   ├── engine.ts  #   Game 状态机
 │   ├── conditions.ts / effects.ts
 │   ├── validate.ts / walk.ts
 │   └── fixtures.ts / *.test.ts
 ├── export/        # 单文件 HTML 导出
 │   ├── runtime.ts #   运行时渲染器（打包进 HTML）
-│   ├── exporter.ts#   esbuild bundle + 模板拼装
+│   ├── exporter.ts#   esbuild bundle + 导出流程
+│   ├── template.ts#   HTML 模板 + 内联 CSS
 │   └── *.test.ts
 ├── mcp/           # MCP 服务器
 │   ├── projects.ts #  项目存储（projects/ 目录）
