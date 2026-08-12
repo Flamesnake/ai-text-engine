@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 40 个测试（vitest）
+npm test             # 66 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
