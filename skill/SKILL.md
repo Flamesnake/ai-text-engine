@@ -46,7 +46,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 4. **设风格/数值**（按需）：`story_set_meta { theme, hud }`；`story_upsert_achievement { achievement }`。
 5. **推理设计**（按需）：先用 `story_upsert_evidence` 定义证据，再用 `story_upsert_deduction` 定义证据要求；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
 6. **人物关系**（按需）：用 `story_upsert_character` 定义人物、关系维度和秘密；关系变化同时写入 `remember`，秘密揭示应影响证据、对话或结局。
-7. **轻量谜题**（按需）：用 `story_upsert_puzzle` 定义密码、前置条件、由轻到重的提示和成功效果；用 `#puzzle` 解锁内容。
+7. **轻量谜题**（按需）：用 `story_upsert_puzzle` 定义 `actionLabel`、密码、前置条件、由轻到重的提示和成功效果；在相关节点的 `puzzles` 中放置谜题，用 `#puzzle` 解锁内容。
 8. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
 9. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
 
@@ -56,6 +56,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 {
   "id": "node_id",                 // 唯一
   "text": "正文，{var} 插值，{#inventory} 道具列表，\\n 换行",
+  "puzzles": ["safe_code"],       // 可选：在本场景显示醒目的解谜行动
   "choices": [
     {
       "label": "选项文案",
@@ -101,6 +102,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 - 不要用普通 `flag` 冒充证据和推论：玩家拿到文档、掌握证据、确认推论是三个不同状态；
 - 不要只修改关系数值却不改变任何内容；关系应影响信息、选择、秘密或结局，记忆负责说明“为什么”；
 - 谜题答案必须能从游戏内信息推出；提示从轻到重；关键谜题必须允许玩家返回搜证，不能永久锁死；
+- 新谜题必须写清 `actionLabel` 并通过节点 `puzzles: [id]` 放进具体场景；不要依赖顶部“谜题”工具入口；谜题场景还应提供至少一个调查或转场行动；
 
 - 结局节点 `choices` 必须为空且带 `ending`；`upsert` 会自动登记结局到结局表；
 - 所有选项 `target` 必须指向存在的节点；`story_validate` 会报告断链、不可达节点、变量拼写错误；

@@ -27,6 +27,7 @@
     "safe_code": {
       "id": "safe_code",
       "title": "书房保险箱",
+      "actionLabel": "尝试打开保险箱",
       "prompt": "锁盘要求输入四位数字。答案藏在书房里的维修记录中。",
       "kind": "code",
       "solution": "1010",
@@ -44,14 +45,34 @@
     "study": {
       "id": "study",
       "text": "书房墙上嵌着一只保险箱。桌旁的旧钟停在十点十分，抽屉里压着一张维修记录。",
-      "onEnter": { "gainDocs": ["clock_note"] },
+      "puzzles": ["safe_code"],
       "choices": [
         {
           "label": "取出保险箱里的账本",
           "target": "ledger_found",
           "when": { "op": "eq", "var": "#puzzle", "value": "safe_code" }
         },
+        { "label": "观察停摆的旧钟", "target": "inspect_clock" },
+        {
+          "label": "查看抽屉里的维修记录",
+          "target": "inspect_record",
+          "effects": { "gainDocs": ["clock_note"] }
+        },
         { "label": "暂时离开书房", "target": "leave" }
+      ]
+    },
+    "inspect_clock": {
+      "id": "inspect_clock",
+      "text": "分针与时针都没有损坏，却被人刻意固定在十点十分。钟框内侧还有四道等宽的刻痕，像是在提醒你把时间写成四位数。",
+      "choices": [
+        { "label": "回到保险箱前", "target": "study" }
+      ]
+    },
+    "inspect_record": {
+      "id": "inspect_record",
+      "text": "维修记录写着：主人坚持让指针永远停在十点十分，因为“重要的四位数就在钟面上”。记录已收入线索夹。",
+      "choices": [
+        { "label": "回到保险箱前", "target": "study" }
       ]
     },
     "ledger_found": {

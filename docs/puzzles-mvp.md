@@ -10,6 +10,7 @@
 interface Puzzle {
   id: string
   title: string
+  actionLabel?: string
   prompt: string
   kind: 'code'
   solution: string
@@ -18,11 +19,15 @@ interface Puzzle {
   requires?: Condition
   onSolved?: Effects
 }
+
+interface StoryNode {
+  puzzles?: string[]
+}
 ```
 
 ## 运行时接口
 
-- `Game.availablePuzzles()`：返回当前前置条件满足且尚未解决的谜题；
+- `Game.availablePuzzles()`：返回当前场景可交互、前置条件满足且尚未解决的谜题；
 - `Game.attemptPuzzle(id, answer)`：提交答案，返回结构化结果；
 - `Game.revealPuzzleHint(id)`：顺序揭示一条提示；
 - `GameState.solvedPuzzles`：保存已解谜题；
@@ -32,12 +37,17 @@ interface Puzzle {
 
 答案默认去除首尾空白并忽略大小写；`caseSensitive: true` 时保留大小写区别。成功效果只执行一次，重复提交保持幂等。
 
+节点通过 `puzzles` 把谜题放进具体场景。运行时会把它渲染为正文下方的主要行动，文案使用谜题的 `actionLabel`，未填写时为“解开：谜题标题”。顶部“谜题”按钮只作为谜题记录入口。
+
+为兼容旧故事：一个谜题若没有被任何节点放置，仍视为全局可用；新故事应始终显式放置谜题。
+
 ## 创作约束
 
 - 答案必须能从游戏内信息合理获得，不能依赖作者脑内知识；
 - 提示按从轻到重排列，最后一条可以接近答案但不应无意义重复谜面；
 - 关键谜题应有退出或回去搜证的路径，不能把玩家永久锁死；
 - 谜题解决后必须影响证据、场景、关系或结局，不能成为孤立装饰。
+- 每个谜题必须放置到合理场景；同一场景还应提供调查、离开或转场行动，不能只留下一个隐蔽入口；
 
 ## 暂不包含
 

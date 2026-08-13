@@ -453,9 +453,11 @@ describe('密码谜题页', () => {
     story.puzzles = {
       safe: {
         id: 'safe', title: '书房保险箱', prompt: '输入四位密码。', kind: 'code',
-        solution: '2210', hints: ['观察时钟。', '按小时和分钟组合。'],
+        solution: '2210', actionLabel: '尝试打开保险箱',
+        hints: ['观察时钟。', '按小时和分钟组合。'],
       },
     }
+    story.nodes.start.puzzles = ['safe']
     story.nodes.start.choices.unshift({
       label: '打开保险箱', target: 'fight',
       when: { op: 'eq', var: '#puzzle', value: 'safe' },
@@ -467,7 +469,10 @@ describe('密码谜题页', () => {
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
 
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('打开保险箱')
-    ;(root.querySelector('[data-action="puzzles"]') as HTMLButtonElement).click()
+    expect([...root.querySelectorAll('[data-puzzle-choice]')].map((el) => el.textContent)).toEqual([
+      '尝试打开保险箱',
+    ])
+    ;(root.querySelector('[data-puzzle-choice="safe"]') as HTMLButtonElement).click()
     expect(root.querySelector('[data-puzzle="safe"]')?.textContent).toContain('书房保险箱')
 
     const answer = root.querySelector<HTMLInputElement>('[data-puzzle-answer="safe"]')!

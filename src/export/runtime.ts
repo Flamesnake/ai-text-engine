@@ -245,6 +245,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       return
     }
     const choices = game.visibleChoices()
+    const scenePuzzles = game.availablePuzzles()
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
@@ -263,6 +264,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <section class="card ${fx.cls}" style="${fx.style}">
           ${renderBody(node)}
           <div class="card-actions">
+            ${scenePuzzles
+              .map(
+                (puzzle) =>
+                  `<button class="btn btn-primary puzzle-choice" data-puzzle-choice="${esc(puzzle.id)}">${esc(puzzle.actionLabel ?? `解开：${puzzle.title}`)}</button>`,
+              )
+              .join('')}
             ${choices
               .map(
                 (c, i) =>
@@ -273,6 +280,9 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </section>
       </main>`
     bindChoices()
+    root.querySelectorAll<HTMLElement>('[data-puzzle-choice]').forEach((button) => {
+      button.addEventListener('click', () => renderPuzzles('', button.dataset.puzzleChoice))
+    })
     bind('[data-action="docs"]', () => renderDocsList())
     bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
     bind('[data-action="characters"]', () => renderCharacters())

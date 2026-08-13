@@ -137,6 +137,8 @@ export interface Character {
 export interface Puzzle {
   id: string
   title: string
+  /** 场景中作为主要行动显示的文案；默认使用「解开：{title}」。 */
+  actionLabel?: string
   prompt: string
   kind: 'code'
   solution: string
@@ -252,6 +254,8 @@ export interface StoryNode {
   fx?: FxItem[]
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
+  /** 可在本场景直接交互的谜题 id。未被任何节点绑定的旧谜题仍按全局谜题处理。 */
+  puzzles?: string[]
   /** 结局节点必须携带 */
   ending?: EndingMeta
   /** 进入本节点时生效（在正文渲染前应用） */

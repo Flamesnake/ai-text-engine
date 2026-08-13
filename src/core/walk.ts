@@ -141,7 +141,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     // 线索板是场景外动作：同时探索“不确认”和所有当前可确认的推论组合。
     // 这样推论解锁的选项不会被误报不可达，同时保留玩家暂不推理的路径。
     for (const deductionState of deductionVariants(st, s)) {
-      for (const puzzleState of puzzleVariants(st, deductionState, depth)) {
+      for (const puzzleState of puzzleVariants(st, nodeId, deductionState, depth)) {
       const ctx: ConditionContext = {
         vars: puzzleState.vars,
         inventory: puzzleState.inventory,
@@ -169,7 +169,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   }
 
   /** 枚举当前可解决谜题的状态组合（含暂不解谜）。 */
-  function puzzleVariants(st: Story, initialState: SimState, depth: number): SimState[] {
+  function puzzleVariants(st: Story, nodeId: string, initialState: SimState, depth: number): SimState[] {
     const variants: SimState[] = [cloneState(initialState)]
     const seen = new Set<string>([''])
     for (let index = 0; index < variants.length; index++) {
@@ -182,6 +182,8 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
         revealedSecrets: current.revealedSecrets, solvedPuzzles: current.solvedPuzzles,
       }
       for (const puzzle of Object.values(st.puzzles ?? {})) {
+        const explicitlyPlaced = Object.values(st.nodes).some((node) => node.puzzles?.includes(puzzle.id))
+        if (explicitlyPlaced && !st.nodes[nodeId]?.puzzles?.includes(puzzle.id)) continue
         if (current.solvedPuzzles.includes(puzzle.id) || !evalCondition(puzzle.requires, ctx)) continue
         const next = cloneState(current)
         next.solvedPuzzles.push(puzzle.id)

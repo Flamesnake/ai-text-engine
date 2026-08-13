@@ -136,6 +136,9 @@ export function validate(story: Story): string[] {
     }
   }
   for (const node of Object.values(story.nodes)) {
+    for (const puzzleId of node.puzzles ?? []) {
+      if (!story.puzzles?.[puzzleId]) problems.push(`节点 "${node.id}" 引用了不存在的谜题 "${puzzleId}"`)
+    }
     validateRelationshipEffects(node.onEnter)
     for (const choice of node.choices) {
       validateRelationshipEffects(choice.effects)

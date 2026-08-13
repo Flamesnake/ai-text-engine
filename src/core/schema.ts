@@ -145,6 +145,7 @@ export const CharacterSchema: z.ZodType<Character> = z.object({
 export const PuzzleSchema: z.ZodType<Puzzle> = z.object({
   id: z.string(),
   title: z.string(),
+  actionLabel: z.string().optional(),
   prompt: z.string(),
   kind: z.literal('code'),
   solution: z.string(),
@@ -186,6 +187,7 @@ export const StoryNodeSchema: z.ZodType<StoryNode> = z.object({
   sfx: z.string().optional(),
   fx: z.array(FxItemSchema).optional(),
   choices: z.array(ChoiceSchema),
+  puzzles: z.array(z.string()).optional(),
   ending: EndingMetaSchema.optional(),
   onEnter: EffectsSchema.optional(),
   tags: z.array(z.string()).optional(),

@@ -240,6 +240,7 @@ export class Game {
     return Object.values(this.story.puzzles ?? {}).filter(
       (puzzle) =>
         !this.st.solvedPuzzles.includes(puzzle.id) &&
+        this.puzzleIsAvailableHere(puzzle.id) &&
         evalCondition(puzzle.requires, this.conditionContext()),
     )
   }
@@ -247,7 +248,7 @@ export class Game {
   attemptPuzzle(puzzleId: string, answer: string): { solved: boolean; attempts: number } {
     const puzzle = this.story.puzzles?.[puzzleId]
     const attempts = this.st.puzzleAttempts[puzzleId] ?? 0
-    if (!puzzle || !evalCondition(puzzle.requires, this.conditionContext())) {
+    if (!puzzle || !this.puzzleIsAvailableHere(puzzleId) || !evalCondition(puzzle.requires, this.conditionContext())) {
       return { solved: false, attempts }
     }
     if (this.st.solvedPuzzles.includes(puzzleId)) return { solved: true, attempts }
@@ -269,7 +270,7 @@ export class Game {
 
   revealPuzzleHint(puzzleId: string): { hint: string | null; revealed: number; total: number } {
     const puzzle = this.story.puzzles?.[puzzleId]
-    if (!puzzle || !evalCondition(puzzle.requires, this.conditionContext())) {
+    if (!puzzle || !this.puzzleIsAvailableHere(puzzleId) || !evalCondition(puzzle.requires, this.conditionContext())) {
       return { hint: null, revealed: 0, total: 0 }
     }
     const hints = puzzle.hints ?? []
@@ -306,6 +307,11 @@ export class Game {
       applyEffects(node.onEnter, target)
       this.st.day = target.day
     }
+  }
+
+  private puzzleIsAvailableHere(puzzleId: string): boolean {
+    const explicitlyPlaced = Object.values(this.story.nodes).some((node) => node.puzzles?.includes(puzzleId))
+    return !explicitlyPlaced || Boolean(this.currentNode.puzzles?.includes(puzzleId))
   }
 
   private effectTarget() {

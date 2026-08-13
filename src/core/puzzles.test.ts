@@ -25,6 +25,7 @@ function makePuzzleStory(): Story {
     nodes: {
       study: {
         id: 'study', text: '墙上嵌着一只保险箱。',
+        puzzles: ['safe_code'],
         choices: [
           {
             label: '取出秘密账本', target: 'truth',
@@ -67,6 +68,19 @@ describe('密码谜题', () => {
     expect(game.state.evidence).toEqual(['ledger'])
   })
 
+  it('显式绑定的谜题只能在对应场景中尝试', () => {
+    const story = makePuzzleStory()
+    story.nodes.study.choices[1] = { label: '去门厅', target: 'leave' }
+    story.nodes.leave.choices = [{ label: '返回书房', target: 'study' }]
+    delete story.nodes.leave.ending
+    const game = new Game(story)
+
+    expect(game.availablePuzzles().map((puzzle) => puzzle.id)).toEqual(['safe_code'])
+    game.choose(0)
+    expect(game.availablePuzzles()).toEqual([])
+    expect(game.attemptPuzzle('safe_code', '2210')).toEqual({ solved: false, attempts: 0 })
+  })
+
   it('提示按顺序逐条揭示并随存档恢复，不会越过提示末尾', () => {
     const story = makePuzzleStory()
     const game = new Game(story)
@@ -87,6 +101,12 @@ describe('密码谜题', () => {
     const problems = validate(story).join('\n')
     expect(problems).toContain('谜题 "safe_code" 的 solution 不能为空')
     expect(problems).toContain('谜题条件引用了不存在的谜题 "ghost"')
+  })
+
+  it('校验场景中不存在的谜题引用', () => {
+    const story = makePuzzleStory()
+    story.nodes.study.puzzles = ['ghost']
+    expect(validate(story).join('\n')).toContain('节点 "study" 引用了不存在的谜题 "ghost"')
   })
 
   it('校验谜题成功效果引用的不存在证据', () => {
