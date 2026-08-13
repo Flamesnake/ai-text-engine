@@ -133,7 +133,37 @@ describe('walkAllEndings 全路径模拟', () => {
     const result = walkAllEndings(story, { maxNodeVisits: 1 })
     expect(result.warnings).toEqual([])
     const end = result.endings.find((e) => e.endingId === 'e_end')!
-    expect(end.paths).toBe(2)
+    expect(end.paths).toBe(1)
+  })
+
+  it('调查中心的无状态往返会按状态剪枝，不产生路径组合爆炸', () => {
+    const story: Story = {
+      meta: { title: '调查中心' },
+      start: 'hub',
+      endings: { e_end: { id: 'e_end', title: '终', kind: 'good' } },
+      nodes: {
+        hub: {
+          id: 'hub', text: '大厅',
+          choices: [
+            { label: '去书房', target: 'study' },
+            { label: '结案', target: 'end' },
+          ],
+        },
+        study: {
+          id: 'study', text: '书房',
+          choices: [{ label: '返回大厅', target: 'hub' }],
+        },
+        end: {
+          id: 'end', text: '终', choices: [],
+          ending: { id: 'e_end', title: '终', kind: 'good' },
+        },
+      },
+    }
+
+    const result = walkAllEndings(story)
+    expect(result.unreachableEndings).toEqual([])
+    expect(result.warnings).toEqual([])
+    expect(result.nodesVisited).toBeLessThan(10)
   })
 
   it('rand 效果按注入随机源取确定值，结果可复现', () => {

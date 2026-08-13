@@ -60,7 +60,7 @@ server.tool(
 
 server.tool(
   'story_upsert_node',
-  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, text, choices[], ending?, onEnter?, tags?, note?}。写入后自动返回校验结果。',
+  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, text, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
   { title: z.string(), node: StoryNodeSchema },
   wrap((args) => handlers.upsertNode(args)),
 )
@@ -162,7 +162,7 @@ server.tool(
 
 server.tool(
   'story_upsert_puzzle',
-  '创建或覆盖一个密码谜题，包含答案、渐进提示、前置条件与成功效果。',
+  '创建或覆盖一个密码谜题，包含 actionLabel（场景行动文案）、答案、渐进提示、前置条件与成功效果；创建后还要在相关节点的 puzzles 中放置该谜题。',
   { title: z.string(), puzzle: PuzzleSchema },
   wrap((args) => handlers.upsertPuzzle(args)),
 )

@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 111 个测试（vitest）
+npm test             # 114 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
@@ -46,6 +46,8 @@ npm run mcp          # 以 stdio 方式启动 MCP 服务器
 node scripts/verify-mcp.mjs      # stdio 握手 + 工具清单（应输出 VERIFY OK）
 node scripts/demo.mjs            # 端到端演示：AI 全流程构建《迷雾车站》并导出
 node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
+node scripts/build-integrated-mystery.mjs   # 通过 MCP 构建综合悬疑样板《雨夜遗嘱》
+node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完整真相路线
 ```
 
 ## MCP 工具

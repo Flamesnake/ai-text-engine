@@ -5,7 +5,7 @@ import { evalCondition, type ConditionContext } from './conditions.js'
 /** 单个结局的模拟统计 */
 export interface EndingReach {
   endingId: string
-  /** 到达该结局的不同路径数（近似：按访问顺序去重；随机分支按注入随机源各取一值） */
+  /** 到达该结局的状态路径数（近似：等价状态合并；随机分支按注入随机源各取一值） */
   paths: number
   /** 最短步数（从起始节点起） */
   minSteps: number
@@ -75,6 +75,9 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   }
   let nodesVisited = 0
   let deepest = 0
+  // 同一节点以相同状态再次抵达时只探索最短的首次抵达。
+  // 路径数按状态路径近似统计，不枚举调查顺序的排列组合。
+  const bestDepthByState = new Map<string, number>()
 
   const initialRelations = Object.fromEntries(
     Object.entries(story.characters ?? {}).map(([characterId, character]) => [
@@ -126,6 +129,11 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     const s = cloneState(state)
     if (!s.visited.includes(nodeId)) s.visited.push(nodeId)
     applySimEffects(node.onEnter, s)
+
+    const stateKey = `${nodeId}\u0001${simStateKey(s)}`
+    const bestDepth = bestDepthByState.get(stateKey)
+    if (bestDepth !== undefined && bestDepth <= depth) return
+    bestDepthByState.set(stateKey, depth)
 
     if (node.choices.length === 0) {
       if (node.ending) {
@@ -265,4 +273,27 @@ function cloneState(s: SimState): SimState {
     day: s.day,
     visited: [...s.visited],
   }
+}
+
+function simStateKey(state: SimState): string {
+  const sortedRecord = <T>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)))
+  return JSON.stringify({
+    vars: sortedRecord(state.vars),
+    inventory: [...state.inventory].sort(),
+    docs: [...state.docs].sort(),
+    evidence: [...state.evidence].sort(),
+    deductions: [...state.deductions].sort(),
+    relations: Object.fromEntries(
+      Object.entries(state.relations)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([characterId, stats]) => [characterId, sortedRecord(stats)]),
+    ),
+    memories: [...state.memories].sort(),
+    revealedSecrets: [...state.revealedSecrets].sort(),
+    solvedPuzzles: [...state.solvedPuzzles].sort(),
+    violations: [...state.violations].sort(),
+    day: state.day,
+    visited: [...state.visited].sort(),
+  })
 }
