@@ -50,6 +50,8 @@ node scripts/build-integrated-mystery.mjs   # 通过 MCP 构建综合悬疑样�
 node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完整真相路线
 ```
 
+第一轮 Agent 泛化盲测题见 `docs/evals/blind-prompts.md`；隐藏评分表见 `docs/evals/evaluation-rubric.md`。生成 Agent 只能看到题目，不能看到评分表。
+
 ## MCP 工具
 
 | 工具 | 用途 |
