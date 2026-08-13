@@ -6,6 +6,7 @@ import type {
   Effects,
   Evidence,
   Deduction,
+  Character,
   EndingMeta,
   FxItem,
   GameState,
@@ -86,6 +87,9 @@ export const EffectsSchema: z.ZodType<Effects> = z.object({
   lose: z.array(z.string()).optional(),
   gainDocs: z.array(z.string()).optional(),
   gainEvidence: z.array(z.string()).optional(),
+  adjustRelation: z.array(z.object({ characterId: z.string(), stat: z.string(), add: z.number() })).optional(),
+  remember: z.array(z.string()).optional(),
+  revealSecrets: z.array(z.string()).optional(),
   flag: z.record(z.string(), z.boolean()).optional(),
 })
 
@@ -123,6 +127,18 @@ export const DeductionSchema: z.ZodType<Deduction> = z.object({
     anyOf: z.array(z.array(z.string())).optional(),
   }),
   onConfirmed: EffectsSchema.optional(),
+})
+
+export const CharacterSchema: z.ZodType<Character> = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  relations: z.record(z.string(), z.object({
+    label: z.string(), initial: z.number().optional(), min: z.number().optional(), max: z.number().optional(),
+  })).optional(),
+  secrets: z.record(z.string(), z.object({
+    id: z.string(), title: z.string(), description: z.string(),
+  })).optional(),
 })
 
 /* ------------------------------ 节点 / 选项 / 结局 / 成就 ------------------------------ */
@@ -192,6 +208,7 @@ export const StorySchema: z.ZodType<Story> = z.object({
   documents: z.record(z.string(), StoryDocumentSchema).optional(),
   evidence: z.record(z.string(), EvidenceSchema).optional(),
   deductions: z.record(z.string(), DeductionSchema).optional(),
+  characters: z.record(z.string(), CharacterSchema).optional(),
 })
 
 export const GameStateSchema: z.ZodType<GameState> = z.object({
@@ -203,6 +220,9 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
   docs: z.array(z.string()),
   evidence: z.array(z.string()).default([]),
   deductions: z.array(z.string()).default([]),
+  relations: z.record(z.string(), z.record(z.string(), z.number())).default({}),
+  memories: z.array(z.string()).default([]),
+  revealedSecrets: z.array(z.string()).default([]),
   violations: z.array(z.string()),
   day: z.number(),
   achievements: z.array(z.string()),
@@ -213,7 +233,7 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
 /* ------------------------------ 解析 / 迁移 ------------------------------ */
 
 /** 当前 Schema 版本（写入 Story.meta.version） */
-export const SCHEMA_VERSION = '0.2.0'
+export const SCHEMA_VERSION = '0.3.0'
 
 /** schema 校验失败时的可读错误 */
 export class StorySchemaError extends Error {

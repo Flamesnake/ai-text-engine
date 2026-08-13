@@ -10,6 +10,7 @@ import {
   ThemeConfigSchema,
   EvidenceSchema,
   DeductionSchema,
+  CharacterSchema,
 } from '../core/schema.js'
 
 /**
@@ -142,6 +143,20 @@ server.tool(
   '删除一个推论定义。',
   { title: z.string(), deductionId: z.string() },
   wrap((args) => handlers.deleteDeduction(args)),
+)
+
+server.tool(
+  'story_upsert_character',
+  '创建或覆盖一个人物定义，包含关系维度与秘密。节点效果可调整关系、记录记忆和揭示秘密。',
+  { title: z.string(), character: CharacterSchema },
+  wrap((args) => handlers.upsertCharacter(args)),
+)
+
+server.tool(
+  'story_delete_character',
+  '删除一个人物定义；删除后请根据校验结果清理关系与秘密引用。',
+  { title: z.string(), characterId: z.string() },
+  wrap((args) => handlers.deleteCharacter(args)),
 )
 
 server.tool(

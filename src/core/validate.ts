@@ -95,6 +95,49 @@ export function validate(story: Story): string[] {
     collectEffects(deduction.onConfirmed, writtenVars, writtenItems, writtenDocs, gainedEvidence)
   }
 
+  // 人物定义与关系/秘密引用
+  for (const [characterId, character] of Object.entries(story.characters ?? {})) {
+    if (character.id !== characterId) problems.push(`角色键 "${characterId}" 与 id "${character.id}" 不一致`)
+    for (const [secretId, secret] of Object.entries(character.secrets ?? {})) {
+      if (secret.id !== secretId) problems.push(`角色 "${characterId}" 的秘密键 "${secretId}" 与 id "${secret.id}" 不一致`)
+    }
+  }
+  const validateRelationshipEffects = (effects: Effects | undefined): void => {
+    for (const change of effects?.adjustRelation ?? []) {
+      const character = story.characters?.[change.characterId]
+      if (!character) problems.push(`关系效果引用了不存在的角色 "${change.characterId}"`)
+      else if (!character.relations?.[change.stat]) {
+        problems.push(`关系效果引用了角色 "${change.characterId}" 未定义的维度 "${change.stat}"`)
+      }
+    }
+    for (const ref of effects?.revealSecrets ?? []) {
+      const [characterId, secretId] = splitRef(ref)
+      if (!characterId || !secretId || !story.characters?.[characterId]?.secrets?.[secretId]) {
+        problems.push(`秘密效果引用了不存在的秘密 "${ref}"`)
+      }
+    }
+  }
+  for (const node of Object.values(story.nodes)) {
+    validateRelationshipEffects(node.onEnter)
+    for (const choice of node.choices) {
+      validateRelationshipEffects(choice.effects)
+      for (const relationVar of collectRelationVars(choice.when)) {
+        const [, characterId, stat] = relationVar.split(':')
+        const character = story.characters?.[characterId]
+        if (!character) problems.push(`关系条件引用了不存在的角色 "${characterId}"`)
+        else if (!character.relations?.[stat]) {
+          problems.push(`关系条件引用了角色 "${characterId}" 未定义的维度 "${stat}"`)
+        }
+      }
+      for (const secretRef of collectSpecialRefs(choice.when, '#secret')) {
+        const [characterId, secretId] = splitRef(secretRef)
+        if (!story.characters?.[characterId]?.secrets?.[secretId]) {
+          problems.push(`秘密条件引用了不存在的秘密 "${secretRef}"`)
+        }
+      }
+    }
+  }
+
   // 结局表孤儿条目
   for (const endId of Object.keys(story.endings)) {
     const used = Object.values(story.nodes).some((n) => n.ending?.id === endId)
@@ -205,7 +248,8 @@ function collectConditionVars(cond: Condition): string[] {
   return out
 }
 
-function collectSpecialRefs(cond: Condition, specialVar: string): string[] {
+function collectSpecialRefs(cond: Condition | undefined, specialVar: string): string[] {
+  if (!cond) return []
   const out: string[] = []
   if (
     cond.var === specialVar &&
@@ -216,4 +260,18 @@ function collectSpecialRefs(cond: Condition, specialVar: string): string[] {
   for (const child of cond.or ?? []) out.push(...collectSpecialRefs(child, specialVar))
   if (cond.not) out.push(...collectSpecialRefs(cond.not, specialVar))
   return out
+}
+
+function collectRelationVars(cond: Condition | undefined): string[] {
+  if (!cond) return []
+  const out = cond.var?.startsWith('#relation:') ? [cond.var] : []
+  for (const child of cond.and ?? []) out.push(...collectRelationVars(child))
+  for (const child of cond.or ?? []) out.push(...collectRelationVars(child))
+  if (cond.not) out.push(...collectRelationVars(cond.not))
+  return out
+}
+
+function splitRef(ref: string): [string, string] {
+  const index = ref.indexOf(':')
+  return index < 0 ? ['', ''] : [ref.slice(0, index), ref.slice(index + 1)]
 }

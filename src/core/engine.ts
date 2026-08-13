@@ -30,6 +30,9 @@ export class Game {
         docs: [...(save.docs ?? [])],
         evidence: [...(save.evidence ?? [])],
         deductions: [...(save.deductions ?? [])],
+        relations: structuredClone(save.relations ?? this.initialRelations()),
+        memories: [...(save.memories ?? [])],
+        revealedSecrets: [...(save.revealedSecrets ?? [])],
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
         achievements: [...(save.achievements ?? [])],
@@ -46,6 +49,9 @@ export class Game {
         docs: [],
         evidence: [],
         deductions: [],
+        relations: this.initialRelations(),
+        memories: [],
+        revealedSecrets: [],
         violations: [],
         day: 1,
         achievements: [],
@@ -111,6 +117,9 @@ export class Game {
       docs: [],
       evidence: [],
       deductions: [],
+      relations: this.initialRelations(),
+      memories: [],
+      revealedSecrets: [],
       violations: [],
       day: 1,
       achievements: [],
@@ -153,6 +162,9 @@ export class Game {
       docs: [...this.st.docs],
       evidence: [...this.st.evidence],
       deductions: [...this.st.deductions],
+      relations: structuredClone(this.st.relations),
+      memories: [...this.st.memories],
+      revealedSecrets: [...this.st.revealedSecrets],
       violations: [...this.st.violations],
       day: this.st.day,
       achievements: [...this.st.achievements],
@@ -224,6 +236,9 @@ export class Game {
       violations: this.st.violations,
       evidence: this.st.evidence,
       deductions: this.st.deductions,
+      relations: this.st.relations,
+      memories: this.st.memories,
+      revealedSecrets: this.st.revealedSecrets,
     }
   }
 
@@ -244,7 +259,24 @@ export class Game {
       day: this.st.day,
       violations: this.st.violations,
       evidence: this.st.evidence,
+      relations: this.st.relations,
+      relationLimits: Object.fromEntries(
+        Object.entries(this.story.characters ?? {}).map(([id, character]) => [id, character.relations ?? {}]),
+      ),
+      memories: this.st.memories,
+      revealedSecrets: this.st.revealedSecrets,
     }
+  }
+
+  private initialRelations(): Record<string, Record<string, number>> {
+    return Object.fromEntries(
+      Object.entries(this.story.characters ?? {}).map(([characterId, character]) => [
+        characterId,
+        Object.fromEntries(
+          Object.entries(character.relations ?? {}).map(([stat, definition]) => [stat, definition.initial ?? 0]),
+        ),
+      ]),
+    )
   }
 
   private assertNode(nodeId: string): void {

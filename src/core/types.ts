@@ -71,6 +71,12 @@ export interface Effects {
   gainDocs?: string[]
   /** 获得证据（进入线索板；按 id 去重） */
   gainEvidence?: string[]
+  /** 调整角色关系数值 */
+  adjustRelation?: { characterId: string; stat: string; add: number }[]
+  /** 记录关键行为记忆（作品级稳定 id） */
+  remember?: string[]
+  /** 揭示角色秘密，格式 characterId:secretId */
+  revealSecrets?: string[]
   /** 设置旗标（与 set 语义相同，仅作语义区分） */
   flag?: Record<string, boolean>
 }
@@ -101,6 +107,29 @@ export interface Deduction {
   requires: DeductionRequirement
   /** 推论首次确认时生效 */
   onConfirmed?: Effects
+}
+
+/* ------------------------------ 人物关系 ------------------------------ */
+
+export interface RelationStatDefinition {
+  label: string
+  initial?: number
+  min?: number
+  max?: number
+}
+
+export interface CharacterSecret {
+  id: string
+  title: string
+  description: string
+}
+
+export interface Character {
+  id: string
+  name: string
+  description: string
+  relations?: Record<string, RelationStatDefinition>
+  secrets?: Record<string, CharacterSecret>
 }
 
 /* ------------------------------ 文本块 / 文档线索 ------------------------------ */
@@ -257,6 +286,8 @@ export interface Story {
   evidence?: Record<string, Evidence>
   /** 玩家可通过证据组合确认的推论 */
   deductions?: Record<string, Deduction>
+  /** 结构化人物、关系维度与秘密 */
+  characters?: Record<string, Character>
 }
 
 /* ------------------------------ 运行时状态 ------------------------------ */
@@ -274,6 +305,12 @@ export interface GameState {
   evidence: string[]
   /** 已确认的推论 id */
   deductions: string[]
+  /** characterId -> stat -> value */
+  relations: Record<string, Record<string, number>>
+  /** 玩家关键行为记忆 */
+  memories: string[]
+  /** 已揭示秘密，格式 characterId:secretId */
+  revealedSecrets: string[]
   /** 已违反的规则 id（规则怪谈「违规度」） */
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */

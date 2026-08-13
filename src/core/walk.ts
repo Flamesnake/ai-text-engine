@@ -37,6 +37,9 @@ interface SimState {
   docs: string[]
   evidence: string[]
   deductions: string[]
+  relations: Record<string, Record<string, number>>
+  memories: string[]
+  revealedSecrets: string[]
   violations: string[]
   day: number
   /** 去重后的已访问节点（与 GameState.visited 语义一致，供 #visited 条件） */
@@ -72,8 +75,18 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   let nodesVisited = 0
   let deepest = 0
 
+  const initialRelations = Object.fromEntries(
+    Object.entries(story.characters ?? {}).map(([characterId, character]) => [
+      characterId,
+      Object.fromEntries(Object.entries(character.relations ?? {}).map(([stat, def]) => [stat, def.initial ?? 0])),
+    ]),
+  )
+  const relationLimits = Object.fromEntries(
+    Object.entries(story.characters ?? {}).map(([characterId, character]) => [characterId, character.relations ?? {}]),
+  )
   const initial: SimState = {
     vars: {}, inventory: [], docs: [], evidence: [], deductions: [],
+    relations: initialRelations, memories: [], revealedSecrets: [],
     violations: [], day: 1, visited: [],
   }
 
@@ -110,7 +123,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     // 应用 onEnter
     const s = cloneState(state)
     if (!s.visited.includes(nodeId)) s.visited.push(nodeId)
-    applyEffects(node.onEnter, s, rand)
+    applySimEffects(node.onEnter, s)
 
     if (node.choices.length === 0) {
       if (node.ending) {
@@ -137,11 +150,14 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
         violations: deductionState.violations,
         evidence: deductionState.evidence,
         deductions: deductionState.deductions,
+        relations: deductionState.relations,
+        memories: deductionState.memories,
+        revealedSecrets: deductionState.revealedSecrets,
       }
       const visible = node.choices.filter((c) => evalCondition(c.when, ctx))
       for (const choice of visible) {
         const s2 = cloneState(deductionState)
-        applyEffects(choice.effects, s2, rand)
+        applySimEffects(choice.effects, s2)
         dfs(st, choice.target, s2, depth + 1, nextVis)
       }
     }
@@ -162,7 +178,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
         if (!canConfirm) continue
         const next = cloneState(current)
         next.deductions.push(deduction.id)
-        applyEffects(deduction.onConfirmed, next, rand)
+        applySimEffects(deduction.onConfirmed, next)
         const key = [...next.deductions].sort().join('\u0000')
         if (!seen.has(key)) {
           if (variants.length >= maxDeductionVariants) {
@@ -175,6 +191,13 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
       }
     }
     return variants
+  }
+
+  /** 注入关系上下限，并把 EffectTarget 的标量 day 回写到模拟状态。 */
+  function applySimEffects(effects: Parameters<typeof applyEffects>[0], state: SimState): void {
+    const target = { ...state, relationLimits }
+    applyEffects(effects, target, rand)
+    state.day = target.day
   }
 
   const endings: EndingReach[] = Object.keys(counts)
@@ -199,6 +222,9 @@ function cloneState(s: SimState): SimState {
     docs: [...s.docs],
     evidence: [...s.evidence],
     deductions: [...s.deductions],
+    relations: structuredClone(s.relations),
+    memories: [...s.memories],
+    revealedSecrets: [...s.revealedSecrets],
     violations: [...s.violations],
     day: s.day,
     visited: [...s.visited],

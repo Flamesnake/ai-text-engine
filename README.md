@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 99 个测试（vitest）
+npm test             # 104 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
@@ -61,6 +61,7 @@ node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
 | `story_upsert_document` / `story_delete_document` | 添加/删除线索/文档（规则守则/便条/信件，可被收集查看） |
 | `story_upsert_evidence` / `story_delete_evidence` | 添加/删除可用于推理的证据 |
 | `story_upsert_deduction` / `story_delete_deduction` | 添加/删除证据组合推论 |
+| `story_upsert_character` / `story_delete_character` | 添加/删除包含关系维度与秘密的人物 |
 | `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
 | `story_walk` | 路径探索模拟（各结局路径数 / 最短步数 / 未到达结局） |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
@@ -108,6 +109,9 @@ interface Effects {
   lose?: string[]                                  // 失去道具
   gainDocs?: string[]                              // 获得线索/文档
   gainEvidence?: string[]                          // 获得推理证据
+  adjustRelation?: { characterId: string; stat: string; add: number }[]
+  remember?: string[]                              // 记录关键行为记忆
+  revealSecrets?: string[]                         // 揭示秘密（characterId:secretId）
   flag?: Record<string, boolean>                   // 旗标（与变量同命名空间）
 }
 
@@ -250,6 +254,26 @@ interface Deduction {
 ```
 
 节点用 `gainEvidence` 发放证据。玩家在线索板选择证据组合；推论成立后可用 `#deduction` 条件解锁对话、场景或结局。完整设计约定见 `docs/deduction-mvp.md`，可运行样例见 `examples/deduction-demo.story.json`。
+
+## 人物关系、记忆与秘密
+
+人物通过 `story_upsert_character` 定义，并在同一人物内声明关系维度和秘密。关系数值表示程度，记忆表示关系变化的叙事原因，秘密表示玩家已经获知的角色信息。
+
+```ts
+interface Character {
+  id: string
+  name: string
+  description: string
+  relations?: Record<string, { label: string; initial?: number; min?: number; max?: number }>
+  secrets?: Record<string, { id: string; title: string; description: string }>
+}
+```
+
+- 关系条件：`{ op: 'gte', var: '#relation:maid:trust', value: 2 }`；
+- 记忆条件：`{ op: 'eq', var: '#memory', value: 'protected_maid' }`；
+- 秘密条件：`{ op: 'eq', var: '#secret', value: 'maid:hidden_corridor' }`。
+
+玩家可在游戏中的“人物”页查看当前关系和已揭示秘密。完整约定见 `docs/relationships-mvp.md`，样例见 `examples/relationship-demo.story.json`。
 
 ## AI 使用指引（典型工作流）
 

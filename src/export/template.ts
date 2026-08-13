@@ -290,6 +290,22 @@ body {
 .evidence-item small { color: var(--text-dim); line-height: 1.5; }
 .deduction-result { min-height: 1.5em; color: var(--gold); }
 
+/* 人物关系页 */
+.character-list { display: flex; flex-direction: column; gap: 1rem; }
+.character-card { margin-top: 1rem; }
+.character-name { margin: 0 0 .5rem; font-size: 1.35rem; letter-spacing: .12em; }
+.character-description { color: var(--text-dim); line-height: 1.7; }
+.relation-list { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.relation-chip {
+  border: 1px solid var(--border); border-radius: 999px; padding: .28rem .75rem;
+  color: var(--accent); font-size: .8rem;
+}
+.secret-list { display: flex; flex-direction: column; gap: .55rem; }
+.secret-item { display: flex; flex-direction: column; gap: .3rem; padding: .7rem; border-left: 2px solid var(--border); }
+.secret-item span { color: var(--text-dim); font-size: .88rem; line-height: 1.6; }
+.secret-revealed { border-left-color: var(--gold); }
+.secret-unknown { opacity: .68; }
+
 /* 节点动画 fx（幅度/频率由 CSS 变量控制，runtime 按 FxSpec 注入） */
 .fx-shake { animation: fx-shake var(--fx-shake-dur, .45s) ease-in-out infinite; }
 @keyframes fx-shake {

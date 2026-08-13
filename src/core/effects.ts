@@ -11,6 +11,10 @@ export interface EffectTarget {
   violations: string[]
   /** 已获得证据；旧调用者未提供时忽略 gainEvidence */
   evidence?: string[]
+  relations?: Record<string, Record<string, number>>
+  relationLimits?: Record<string, Record<string, { min?: number; max?: number }>>
+  memories?: string[]
+  revealedSecrets?: string[]
 }
 
 /**
@@ -69,6 +73,25 @@ export function applyEffects(
   if (effects.gainEvidence) {
     for (const evidenceId of effects.gainEvidence) {
       if (target.evidence && !target.evidence.includes(evidenceId)) target.evidence.push(evidenceId)
+    }
+  }
+  if (effects.adjustRelation && target.relations) {
+    for (const change of effects.adjustRelation) {
+      const stats = target.relations[change.characterId]
+      if (!stats || typeof stats[change.stat] !== 'number') continue
+      const limits = target.relationLimits?.[change.characterId]?.[change.stat]
+      stats[change.stat] = Math.max(
+        limits?.min ?? -Infinity,
+        Math.min(limits?.max ?? Infinity, stats[change.stat] + change.add),
+      )
+    }
+  }
+  if (effects.remember && target.memories) {
+    for (const memory of effects.remember) if (!target.memories.includes(memory)) target.memories.push(memory)
+  }
+  if (effects.revealSecrets && target.revealedSecrets) {
+    for (const secret of effects.revealSecrets) {
+      if (!target.revealedSecrets.includes(secret)) target.revealedSecrets.push(secret)
     }
   }
   if (effects.flag) {

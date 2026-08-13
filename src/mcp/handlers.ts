@@ -1,5 +1,5 @@
 import type {
-  Achievement, Deduction, Evidence, HudStat, StoryDocument, StoryNode, ThemeConfig,
+  Achievement, Character, Deduction, Evidence, HudStat, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
 import { validate } from '../core/validate.js'
 import { walkAllEndings } from '../core/walk.js'
@@ -375,6 +375,31 @@ export async function deleteDeduction(args: { title: string; deductionId: string
   return { ok: true, deleted: true, deductionId: args.deductionId }
 }
 
+export async function upsertCharacter(args: { title: string; character: Character }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.character?.id) throw new Error('character.id 不能为空')
+  story.characters ??= {}
+  const created = !story.characters[args.character.id]
+  story.characters[args.character.id] = args.character
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, characterId: args.character.id,
+    count: Object.keys(story.characters).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteCharacter(args: { title: string; characterId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.characters ??= {}
+  if (!story.characters[args.characterId]) return { ok: true, deleted: false }
+  delete story.characters[args.characterId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, characterId: args.characterId, validate: problems, validatePass: problems.length === 0 }
+}
+
 export async function listProjects(): Promise<unknown> {
   const refs = await projects.listProjects()
   const detailed = []
@@ -415,6 +440,8 @@ export const tools = {
   story_delete_evidence: (args: { title: string; evidenceId: string }) => deleteEvidence(args),
   story_upsert_deduction: (args: { title: string; deduction: Deduction }) => upsertDeduction(args),
   story_delete_deduction: (args: { title: string; deductionId: string }) => deleteDeduction(args),
+  story_upsert_character: (args: { title: string; character: Character }) => upsertCharacter(args),
+  story_delete_character: (args: { title: string; characterId: string }) => deleteCharacter(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
   story_walk: (args: { title: string }) => validateStory(args.title),
   story_graph: (args: { title: string }) => graph(args.title),

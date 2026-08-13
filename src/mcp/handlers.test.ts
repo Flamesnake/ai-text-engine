@@ -255,3 +255,20 @@ describe('story_upsert_evidence / story_upsert_deduction', () => {
     expect(result.story.deductions?.false_alibi).toEqual(deduction)
   })
 })
+
+describe('story_upsert_character / story_delete_character', () => {
+  it('Agent 可幂等定义包含关系维度和秘密的人物', async () => {
+    await createTestProject()
+    const character = {
+      id: 'maid', name: '林夏', description: '山庄女仆。',
+      relations: { trust: { label: '信任', initial: 0, min: -3, max: 3 } },
+      secrets: { corridor: { id: 'corridor', title: '隐藏走廊', description: '她看见了走廊。' } },
+    }
+    const first = await handlers.upsertCharacter({ title: '测试游戏', character }) as { created: boolean }
+    const second = await handlers.upsertCharacter({ title: '测试游戏', character }) as { created: boolean }
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(false)
+    const result = await handlers.getStory('测试游戏') as { story: { characters?: Record<string, unknown> } }
+    expect(result.story.characters?.maid).toEqual(character)
+  })
+})

@@ -18,6 +18,9 @@ export interface ConditionContext {
   violations?: string[]
   evidence?: string[]
   deductions?: string[]
+  relations?: Record<string, Record<string, number>>
+  memories?: string[]
+  revealedSecrets?: string[]
 }
 
 /** 特殊变量（以 # 开头）：#steps / #ending / #visited */
@@ -86,6 +89,10 @@ export function evalCondition(cond: Condition | undefined, ctx: ConditionContext
 }
 
 function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
+  if (cond.var?.startsWith('#relation:')) {
+    const [, characterId, stat] = cond.var.split(':')
+    return compare(cond.op, ctx.relations?.[characterId]?.[stat], cond.value)
+  }
   switch (cond.var) {
     case '#steps':
       return compare(cond.op, ctx.steps ?? 0, cond.value)
@@ -113,6 +120,14 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     }
     case '#deduction': {
       const has = cond.value !== undefined && (ctx.deductions ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#memory': {
+      const has = cond.value !== undefined && (ctx.memories ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#secret': {
+      const has = cond.value !== undefined && (ctx.revealedSecrets ?? []).includes(String(cond.value))
       return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
     }
     default:

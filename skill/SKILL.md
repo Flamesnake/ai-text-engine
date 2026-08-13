@@ -22,6 +22,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 | `story_upsert_document` / `story_delete_document` | 管理线索/文档（规则守则/便条/信件） |
 | `story_upsert_evidence` / `story_delete_evidence` | 管理可用于推理的证据 |
 | `story_upsert_deduction` / `story_delete_deduction` | 管理证据组合推论 |
+| `story_upsert_character` / `story_delete_character` | 管理人物、关系维度与秘密 |
 | `story_set_meta` | 主题 / HUD 统计条 / 副标题 / 作者 |
 | `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
 | `story_walk` | 路径探索模拟（各结局路径数 / 最短步数） |
@@ -43,8 +44,9 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 3. **写节点**：`story_upsert_node { node }` 逐个写入。先全部写完再校验——中途断链是正常的。
 4. **设风格/数值**（按需）：`story_set_meta { theme, hud }`；`story_upsert_achievement { achievement }`。
 5. **推理设计**（按需）：先用 `story_upsert_evidence` 定义证据，再用 `story_upsert_deduction` 定义证据要求；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
-6. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
-7. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
+6. **人物关系**（按需）：用 `story_upsert_character` 定义人物、关系维度和秘密；关系变化同时写入 `remember`，秘密揭示应影响证据、对话或结局。
+7. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
+8. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
 
 ## 节点数据格式速查
 
@@ -66,6 +68,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 ```
 
 - **效果** `Effects`：`set`（赋值）/ `add`（数值增减）/ `rand`（随机整数，`[{var,min,max}]`）/ `violation`（记录违规规则）/ `day`（推进天数）/ `gain` / `lose`（道具）/ `gainDocs`（文档）/ `gainEvidence`（推理证据）/ `flag`（旗标，与变量同命名空间）；
+- **人物效果**：`adjustRelation: [{characterId, stat, add}]` 调整关系；`remember` 记录玩家关键行为；`revealSecrets: ['角色:秘密']` 揭示秘密；
 - **条件** `Condition`：`op: eq|ne|gt|gte|lt|lte|exists|has|not_has`，可组合 `and` / `or` / `not`；
   `has`/`not_has` 检查道具；特殊变量 `#steps` / `#ending` / `#visited` / `#docs` / `#evidence` / `#deduction` / `#day`（天数）/ `#violated`（违反过某规则）；
 - **音效/动画**：节点 `sfx`（click/page/heartbeat/drone/achievement/shock/ending_*）与 `fx`（shake/flicker/glitch/pulse/**unstable**，可带参数 `{name, intensity?, speed?}` 调幅度/频率；unstable=随机间隔连闪爆发，模拟坏灯）；选项/成就/线索/结局自动播音效，右上角 🔊 可静音；
@@ -84,6 +87,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 | 规则怪谈 | `documents` 多份矛盾守则 + `gainDocs` 收集 + `blocks` 规则排版 + `#docs` 条件解锁；`violation`/`#violated` 违规度、`day`/`#day` 天数循环、节点 `sfx`/`fx` 恐怖氛围，结局按违规度分支 |
 | 赛博/科幻 | `theme: "cyber"`；变量：信用点/黑客等级 |
 | 温馨/恋爱 | `theme: "cozy"`；`hud` 显示好感度进度条；成就：隐藏好感事件 |
+| 人物关系 | 为人物定义少量有意义的关系维度；关系变化配套 `remember`，达到门槛后揭示秘密、证据或新行动 |
 | 复古/蒸汽 | `theme: "paper"` |
 | RPG 冒险 | 道具 `gain`/`lose` + 数值变量 + `when` 条件解锁选项 |
 | 收集/多结局 | `achievements` 按 `#ending`/`#visited` 条件收集 |
@@ -92,6 +96,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 
 - 推理作品必须保证正确结论能从游戏内证据推出；误导应有可发现的反证；关键证据尽量有替代获取路径；
 - 不要用普通 `flag` 冒充证据和推论：玩家拿到文档、掌握证据、确认推论是三个不同状态；
+- 不要只修改关系数值却不改变任何内容；关系应影响信息、选择、秘密或结局，记忆负责说明“为什么”；
 
 - 结局节点 `choices` 必须为空且带 `ending`；`upsert` 会自动登记结局到结局表；
 - 所有选项 `target` 必须指向存在的节点；`story_validate` 会报告断链、不可达节点、变量拼写错误；

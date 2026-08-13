@@ -402,3 +402,47 @@ describe('证据线索板', () => {
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('揭穿管家')
   })
 })
+
+describe('人物关系页', () => {
+  it('玩家查看关系与秘密状态，揭示秘密后仍可从结局返回人物页查看', () => {
+    const story = makeStory()
+    story.characters = {
+      maid: {
+        id: 'maid', name: '林夏', description: '山庄女仆。',
+        relations: { trust: { label: '信任', initial: 0, min: -3, max: 3 } },
+        secrets: {
+          corridor: { id: 'corridor', title: '隐藏走廊', description: '她看见管家进入隐藏走廊。' },
+        },
+      },
+    }
+    story.nodes.start.choices = [{
+      label: '替她保密', target: 'fight',
+      effects: {
+        adjustRelation: [{ characterId: 'maid', stat: 'trust', add: 2 }],
+        remember: ['protected_maid'],
+      },
+    }]
+    story.nodes.fight.onEnter = { revealSecrets: ['maid:corridor'] }
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:characters', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('林夏')
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 0')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('未知秘密')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+
+    ;(root.querySelector('[data-choice]') as HTMLButtonElement).click()
+    expect(root.querySelector('.ending-title')).not.toBeNull()
+    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 2')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('隐藏走廊')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('她看见管家进入隐藏走廊')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.ending-title')).not.toBeNull()
+  })
+})

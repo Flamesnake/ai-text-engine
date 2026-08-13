@@ -252,6 +252,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${charactersButton()}
           ${evidenceBoardButton()}
           ${docsButton()}
           ${muteButtonHtml()}
@@ -273,6 +274,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bindChoices()
     bind('[data-action="docs"]', () => renderDocsList())
     bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
+    bind('[data-action="characters"]', () => renderCharacters())
     bindMute()
     const cardEl = root.querySelector<HTMLElement>('.card')
     if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
@@ -313,6 +315,42 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   function evidenceBoardButton(): string {
     if (game.state.evidence.length === 0 || !story.evidence || !story.deductions) return ''
     return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">线索板 ${game.state.evidence.length}</button>`
+  }
+
+  function charactersButton(): string {
+    if (!story.characters || Object.keys(story.characters).length === 0) return ''
+    return `<button class="btn btn-ghost docs-btn" data-action="characters">人物</button>`
+  }
+
+  /** 人物页：展示人物说明、当前关系与已揭示/未知秘密。 */
+  function renderCharacters(): void {
+    clearUnstable()
+    const characters = Object.values(story.characters ?? {})
+    root.innerHTML = `
+      <main class="screen game-screen">
+        <header class="game-header"><span class="game-title">人物</span><span class="game-step">${characters.length} 人</span></header>
+        <div class="character-list">${characters.map((character) => {
+          const stats = Object.entries(character.relations ?? {})
+          const secrets = Object.entries(character.secrets ?? {})
+          return `<section class="card character-card" data-character="${esc(character.id)}">
+            <h2 class="character-name">${esc(character.name)}</h2>
+            <p class="character-description">${esc(character.description)}</p>
+            <div class="relation-list">${stats.map(([stat, definition]) =>
+              `<span class="relation-chip">${esc(definition.label)} ${game.state.relations[character.id]?.[stat] ?? definition.initial ?? 0}</span>`,
+            ).join('')}</div>
+            <div class="secret-list">${secrets.map(([secretId, secret]) => {
+              const ref = `${character.id}:${secretId}`
+              const revealed = game.state.revealedSecrets.includes(ref)
+              return `<article class="secret-item ${revealed ? 'secret-revealed' : 'secret-unknown'}" data-secret="${esc(ref)}">
+                <strong>${revealed ? esc(secret.title) : '未知秘密'}</strong>
+                <span>${revealed ? esc(secret.description) : '继续与这个人物互动，或许能发现更多。'}</span>
+              </article>`
+            }).join('')}</div>
+          </section>`
+        }).join('')}</div>
+        <div class="card-actions"><button class="btn" data-action="back">返回</button></div>
+      </main>`
+    bind('[data-action="back"]', () => renderNode())
   }
 
   /** 证据组合线索板：选择推论和证据，提交给 Game 的确定性推论接口。 */
@@ -429,6 +467,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${charactersButton()}
           ${evidenceBoardButton()}
           ${docsButton()}
           ${muteButtonHtml()}
@@ -445,6 +484,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       </main>`
     bind('[data-action="docs"]', () => renderDocsList())
     bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
+    bind('[data-action="characters"]', () => renderCharacters())
     bindMute()
     bind('[data-action="replay"]', () => {
       game = new Game(story)
