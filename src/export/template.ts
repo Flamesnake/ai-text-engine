@@ -289,6 +289,11 @@ body {
 .evidence-item span { display: flex; flex-direction: column; gap: .3rem; }
 .evidence-item small { color: var(--text-dim); line-height: 1.5; }
 .deduction-result { min-height: 1.5em; color: var(--gold); }
+.deduction-guide {
+  margin: 0 0 1.2rem; padding: .85rem 1rem;
+  border-left: 3px solid var(--gold); background: color-mix(in srgb, var(--gold) 8%, transparent);
+  color: var(--text-dim); line-height: 1.65;
+}
 
 /* 人物关系页 */
 .character-list { display: flex; flex-direction: column; gap: 1rem; }

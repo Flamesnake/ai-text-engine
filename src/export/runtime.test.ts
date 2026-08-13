@@ -390,9 +390,12 @@ describe('证据线索板', () => {
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
 
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('揭穿管家')
-    ;(root.querySelector('[data-action="evidence-board"]') as HTMLButtonElement).click()
+    const deductionAction = root.querySelector<HTMLElement>('[data-deduction-choice]')
+    expect(deductionAction?.textContent).toContain('整理线索并推理')
+    deductionAction!.click()
     expect(root.querySelectorAll('[data-evidence]').length).toBe(2)
     expect(root.querySelector('[data-deduction="false_alibi"]')?.textContent).toContain('管家的不在场证明不成立')
+    expect(root.querySelector('.deduction-guide')?.textContent).toContain('勾选支持它的证据')
 
     root.querySelectorAll<HTMLInputElement>('[data-evidence]').forEach((input) => input.click())
     ;(root.querySelector('[data-action="confirm-deduction"]') as HTMLButtonElement).click()

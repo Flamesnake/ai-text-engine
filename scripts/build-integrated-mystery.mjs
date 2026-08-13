@@ -147,8 +147,8 @@ try {
         { label: '请梅姨回忆停电经过', target: 'mei_talk' },
         { label: '调查二楼书房', target: 'study' },
         { label: '用完整证据指控周衡', target: 'true_ending', when: { op: 'eq', var: '#deduction', value: 'butler_murder' } },
-        { label: '认定许医生用错药', target: 'false_ending' },
-        { label: '接受“心脏病发”的说法，等待天亮', target: 'silent_ending' },
+        { label: '【结束调查】认定许医生用错药', target: 'false_ending' },
+        { label: '【结束调查】接受“心脏病发”的说法，等待天亮', target: 'silent_ending' },
       ],
     },
     {

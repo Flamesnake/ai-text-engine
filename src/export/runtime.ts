@@ -264,6 +264,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <section class="card ${fx.cls}" style="${fx.style}">
           ${renderBody(node)}
           <div class="card-actions">
+            ${deductionAction()}
             ${scenePuzzles
               .map(
                 (puzzle) =>
@@ -280,6 +281,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </section>
       </main>`
     bindChoices()
+    bind('[data-deduction-choice]', () => renderEvidenceBoard())
     root.querySelectorAll<HTMLElement>('[data-puzzle-choice]').forEach((button) => {
       button.addEventListener('click', () => renderPuzzles('', button.dataset.puzzleChoice))
     })
@@ -327,6 +329,14 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   function evidenceBoardButton(): string {
     if (game.state.evidence.length === 0 || !story.evidence || !story.deductions) return ''
     return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">线索板 ${game.state.evidence.length}</button>`
+  }
+
+  function deductionAction(): string {
+    const hasUnconfirmed = Object.values(story.deductions ?? {}).some(
+      (deduction) => !game.state.deductions.includes(deduction.id),
+    )
+    if (game.state.evidence.length === 0 || !hasUnconfirmed) return ''
+    return `<button class="btn btn-primary deduction-choice" data-deduction-choice>整理线索并推理（${game.state.evidence.length} 条）</button>`
   }
 
   function charactersButton(): string {
@@ -429,6 +439,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       <main class="screen game-screen">
         <header class="game-header"><span class="game-title">线索板</span><span class="game-step">${owned.length} 条证据</span></header>
         <section class="card deduction-board">
+          <p class="deduction-guide">先选择一项待证明的推论，再勾选支持它的证据，最后点击“验证推论”。证据不足时可以返回场景继续调查。</p>
           <h2 class="deduction-heading">待证明的推论</h2>
           <div class="deduction-list">${deductions.map((deduction, index) => {
             const confirmed = game.state.deductions.includes(deduction.id)

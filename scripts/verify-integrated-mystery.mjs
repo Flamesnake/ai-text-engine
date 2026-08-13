@@ -56,7 +56,8 @@ click('[data-action="back"]', '返回书房')
 choose('暗格已开，检查其中的残页')
 choose('带着账页返回大厅')
 
-click('[data-action="evidence-board"]', '打开线索板')
+assert(root.querySelector('[data-deduction-choice]')?.textContent.includes('整理线索并推理'), '获得证据后没有出现主要推理行动')
+click('[data-deduction-choice]', '整理线索并推理')
 const ownedEvidence = [...root.querySelectorAll('[data-evidence]')].map((item) => item.value)
 for (const required of ['swapped_bottle', 'ledger_page', 'son_testimony']) {
   assert(ownedEvidence.includes(required), `缺少真相路线证据：${required}`)
