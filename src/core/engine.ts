@@ -36,6 +36,7 @@ export class Game {
         solvedPuzzles: [...(save.solvedPuzzles ?? [])],
         puzzleAttempts: { ...(save.puzzleAttempts ?? {}) },
         puzzleHints: { ...(save.puzzleHints ?? {}) },
+        tutorialsSeen: [...(save.tutorialsSeen ?? [])],
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
         achievements: [...(save.achievements ?? [])],
@@ -58,6 +59,7 @@ export class Game {
         solvedPuzzles: [],
         puzzleAttempts: {},
         puzzleHints: {},
+        tutorialsSeen: [],
         violations: [],
         day: 1,
         achievements: [],
@@ -129,6 +131,7 @@ export class Game {
       solvedPuzzles: [],
       puzzleAttempts: {},
       puzzleHints: {},
+      tutorialsSeen: [],
       violations: [],
       day: 1,
       achievements: [],
@@ -177,6 +180,7 @@ export class Game {
       solvedPuzzles: [...this.st.solvedPuzzles],
       puzzleAttempts: { ...this.st.puzzleAttempts },
       puzzleHints: { ...this.st.puzzleHints },
+      tutorialsSeen: [...this.st.tutorialsSeen],
       violations: [...this.st.violations],
       day: this.st.day,
       achievements: [...this.st.achievements],
@@ -186,6 +190,14 @@ export class Game {
   }
 
   /* ------------------------------ 内部 ------------------------------ */
+
+  hasSeenTutorial(tutorialId: string): boolean {
+    return this.st.tutorialsSeen.includes(tutorialId)
+  }
+
+  markTutorialSeen(tutorialId: string): void {
+    if (!this.st.tutorialsSeen.includes(tutorialId)) this.st.tutorialsSeen.push(tutorialId)
+  }
 
   private enter(nodeId: string): void {
     this.assertNode(nodeId)

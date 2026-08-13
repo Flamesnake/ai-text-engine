@@ -109,6 +109,7 @@ try {
       id: 'butler_murder',
       statement: '周衡利用停电调换救命药，并因暗账即将败露而杀人',
       description: '物证证明药瓶被换，暗账给出动机，目击或医学证词补全了作案过程。',
+      hint: '检查死者服下的药，寻找周衡的作案动机，并争取至少一名知情人开口。',
       requires: {
         all: ['swapped_bottle', 'ledger_page'],
         anyOf: [['son_testimony', 'doctor_testimony', 'outage_footsteps']],
@@ -129,7 +130,7 @@ try {
 
   const nodes = [
     {
-      id: 'start', text: '', sfx: 'drone',
+      id: 'start', objective: '封锁现场，确认今晚有哪些人和秘密留在宅邸中', text: '', sfx: 'drone',
       blocks: [
         { type: 'title', title: '雨夜遗嘱', text: '雨夜遗嘱' },
         { type: 'para', text: '午夜十一点，庄园主人乔致远死在自己的宴会桌前。暴雨冲垮了下山的桥，电话线也断了。你是今晚唯一的外客——一名受邀见证新遗嘱的调查记者。' },
@@ -139,6 +140,7 @@ try {
     },
     {
       id: 'hall',
+      objective: '调查药物、人物证词与二楼书房；取得证据后在推理板组合验证',
       text: '壁炉里的火逐渐变小。周衡站在楼梯旁，反复强调主人死于旧疾。其余三人各自沉默，等待你的判断。',
       choices: [
         { label: '检查尸体和药瓶', target: 'body' },
@@ -153,12 +155,14 @@ try {
     },
     {
       id: 'body',
+      objective: '判断死者服下的药是否来自许医生的原装药瓶',
       text: '药瓶标签边缘有新鲜胶痕，瓶底批号也被刮花。你从许医生留在餐边柜上的处方存根确认：正确药瓶应是 X-17 批次，封签为蓝色。眼前这只不是。',
       onEnter: { gainEvidence: ['swapped_bottle'], gainDocs: ['medicine_sheet'] },
       choices: [{ label: '带着药瓶回到大厅', target: 'hall' }],
     },
     {
       id: 'qiao_talk',
+      objective: '判断乔岚的债务是否与死亡有关，并设法取得他的信任',
       text: '乔岚捏着一张欠条，先承认自己与父亲争吵过。“你当然可以把我当凶手。所有人都知道我缺钱。”他却不肯解释停电时看见了什么。',
       choices: [
         {
@@ -178,6 +182,7 @@ try {
     },
     {
       id: 'doctor_talk',
+      objective: '区分许医生隐瞒的旧事与今晚真正的死因',
       text: '许医生坚持自己的处方没有问题，却拒绝让你查看旧病历。她的手在发抖——不像杀人后恐惧，更像害怕另一件事被发现。',
       choices: [
         {
@@ -197,6 +202,7 @@ try {
     },
     {
       id: 'mei_talk',
+      objective: '让梅姨说出停电时不愿指认的人',
       text: '梅姨说停电后大家都留在宴会厅，但说到周衡时，她下意识望向药房走廊。二十年的雇佣关系令她不愿轻易指控同僚。',
       choices: [
         {
@@ -215,6 +221,7 @@ try {
     },
     {
       id: 'study',
+      objective: '调查肖像与暗格，寻找周衡可能的杀人动机',
       text: '书房没有被翻动。主人肖像悬在壁炉上方，画框却比墙面干净，显然经常被移动。画后嵌着一个四位数黄铜暗格。',
       puzzles: ['study_safe'],
       choices: [
@@ -231,6 +238,7 @@ try {
     },
     {
       id: 'ledger_read',
+      objective: '把暗账加入推理板，回大厅验证完整推论',
       text: '暗格里只剩半页账目。周衡连续三年把庄园修缮款转入私人账户。最后一行是主人的笔迹：“明早九点交账，否则报警。”动机与死亡时间终于重叠。',
       choices: [{ label: '带着账页返回大厅', target: 'hall' }],
     },
@@ -272,6 +280,9 @@ try {
   const validation = await tool('story_validate', { title })
   if (!validation.validatePass || validation.walk.unreachableEndings.length > 0) {
     throw new Error(`最终校验失败：${JSON.stringify(validation, null, 2)}`)
+  }
+  if (validation.experienceWarnings.length > 0) {
+    throw new Error(`体验校验警告：${validation.experienceWarnings.join('\n')}`)
   }
   const graph = await tool('story_graph', { title })
   const exported = await tool('story_export', { title })

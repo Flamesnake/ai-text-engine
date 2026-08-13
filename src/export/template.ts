@@ -178,6 +178,20 @@ body {
   display: flex; flex-wrap: wrap; gap: .45rem;
   margin-top: .9rem;
 }
+.scene-objective, .evidence-notice, .tutorial-banner {
+  display: flex; gap: .7rem; align-items: flex-start;
+  margin-top: .9rem; padding: .8rem 1rem; border-radius: 4px;
+  border: 1px solid var(--border); line-height: 1.6;
+}
+.scene-objective strong, .evidence-notice strong { white-space: nowrap; color: var(--accent); }
+.scene-objective span, .evidence-notice span { color: var(--text-dim); }
+.evidence-notice { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 7%, transparent); }
+.evidence-notice strong { color: var(--gold); }
+.tutorial-banner { justify-content: space-between; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.tutorial-banner div { display: flex; flex-direction: column; gap: .25rem; }
+.tutorial-banner strong { color: var(--accent); letter-spacing: .08em; }
+.tutorial-banner span { color: var(--text-dim); }
+.tutorial-banner .btn { flex: 0 0 auto; padding: .35rem .7rem; }
 .inv-chip {
   font-size: .8rem; letter-spacing: .08em;
   border: 1px solid var(--border);
@@ -278,13 +292,15 @@ body {
 }
 .doc-title { letter-spacing: .06em; }
 
-/* 证据线索板 */
+/* 推理板 */
 .deduction-heading { font-size: 1rem; letter-spacing: .12em; color: var(--accent); margin: .4rem 0 .8rem; }
 .deduction-list, .evidence-list { display: flex; flex-direction: column; gap: .65rem; margin-bottom: 1.4rem; }
 .deduction-item, .evidence-item {
   display: flex; gap: .8rem; align-items: flex-start; padding: .8rem;
   border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
 }
+.deduction-item > span { display: flex; flex-direction: column; gap: .32rem; }
+.deduction-item small { color: var(--text-dim); line-height: 1.45; }
 .deduction-confirmed { color: var(--green); border-color: var(--green); }
 .evidence-item span { display: flex; flex-direction: column; gap: .3rem; }
 .evidence-item small { color: var(--text-dim); line-height: 1.5; }

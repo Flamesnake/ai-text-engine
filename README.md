@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 114 个测试（vitest）
+npm test             # 116 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
@@ -236,7 +236,7 @@ blocks: [
 
 ## 证据组合推理
 
-推理玩法区分三个概念：Document 是可阅读载体，Evidence 是可用于论证的材料，Deduction 是玩家在线索板用证据确认的命题。
+推理玩法区分三个概念：Document 是可阅读载体，Evidence 是可用于论证的材料，Deduction 是玩家在推理板用证据确认的命题。
 
 ```ts
 interface Evidence {
@@ -251,12 +251,13 @@ interface Deduction {
   id: string
   statement: string
   description?: string
+  hint?: string              // 证据不足时的非剧透调查方向
   requires: { all?: string[]; anyOf?: string[][] }
   onConfirmed?: Effects
 }
 ```
 
-节点用 `gainEvidence` 发放证据。玩家在线索板选择证据组合；推论成立后可用 `#deduction` 条件解锁对话、场景或结局。完整设计约定见 `docs/deduction-mvp.md`，可运行样例见 `examples/deduction-demo.story.json`。
+节点用 `gainEvidence` 发放证据。玩家在推理板选择证据组合；推论成立后可用 `#deduction` 条件解锁对话、场景或结局。节点 `objective` 可显示当前目标，推论 `hint` 可提示调查方向。完整设计约定见 `docs/deduction-mvp.md`，可运行样例见 `examples/deduction-demo.story.json`。
 
 ## 人物关系、记忆与秘密
 

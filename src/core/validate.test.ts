@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Story } from './types.js'
-import { validate } from './validate.js'
+import { validate, validateExperience } from './validate.js'
 import { walkAllEndings } from './walk.js'
 import { makeStory } from './fixtures.js'
 
@@ -71,6 +71,32 @@ describe('validate 静态校验', () => {
     const all = problems.join('\n')
     expect(all).toContain('"courag"')
     expect(all).not.toContain('"courage"')
+  })
+})
+
+describe('validateExperience 非阻断体验校验', () => {
+  it('提示缺少目标、推论方向、谜题场景绑定和结案后果文案', () => {
+    const story = makeStory()
+    story.evidence = {
+      clue: { id: 'clue', title: '证据', description: '描述' },
+    }
+    story.deductions = {
+      theory: { id: 'theory', statement: '待验证命题', requires: { all: ['clue'] } },
+    }
+    story.puzzles = {
+      safe: { id: 'safe', title: '保险箱', prompt: '密码', kind: 'code', solution: '1234' },
+    }
+    story.nodes.start.choices.push(
+      { label: '调查走廊', target: 'armed' },
+      { label: '认定这是意外', target: 'flee' },
+    )
+
+    const warnings = validateExperience(story).join('\n')
+    expect(warnings).toContain('节点 "start" 有 4 个可选行动但没有 objective')
+    expect(warnings).toContain('推论 "theory" 缺少 hint')
+    expect(warnings).toContain('谜题 "safe" 没有放置到任何节点')
+    expect(warnings).toContain('选项「逃跑」直接进入坏结局')
+    expect(validate(story)).toEqual([])
   })
 })
 

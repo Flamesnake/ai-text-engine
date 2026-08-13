@@ -21,6 +21,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   let game: Game
   /** 上次渲染时的成就快照（用于检测新解锁弹 toast） */
   let lastAchievements: string[] = []
+  /** 上次场景渲染时已拥有的证据，用于只提示本次新增项。 */
+  let lastEvidence: string[] = []
   /** 不稳定灯随机爆发定时器 */
   let unstableTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -165,12 +167,14 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="start"]', () => {
       game = new Game(story)
       lastAchievements = [...game.state.achievements]
+      lastEvidence = []
       save()
       renderNode()
     })
     bind('[data-action="continue"]', () => {
       game = new Game(story, load())
       lastAchievements = [...game.state.achievements]
+      lastEvidence = [...game.state.evidence]
       renderNode()
     })
     bind('[data-action="clear"]', () => {
@@ -246,6 +250,9 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     }
     const choices = game.visibleChoices()
     const scenePuzzles = game.availablePuzzles()
+    const newEvidence = game.state.evidence.filter((id) => !lastEvidence.includes(id))
+    lastEvidence = [...game.state.evidence]
+    const tutorial = activeTutorial(scenePuzzles.length > 0)
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
@@ -261,6 +268,9 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </header>
         ${renderHud()}
         ${renderInventory(game.state.inventory)}
+        ${node.objective ? `<aside class="scene-objective"><strong>当前目标</strong><span>${esc(game.interpolate(node.objective))}</span></aside>` : ''}
+        ${newEvidence.length > 0 ? `<aside class="evidence-notice"><strong>新证据</strong><span>${newEvidence.map((id) => esc(story.evidence?.[id]?.title ?? id)).join('、')}已加入推理板，可与其他证据组合。</span></aside>` : ''}
+        ${tutorial ? tutorialBanner(tutorial) : ''}
         <section class="card ${fx.cls}" style="${fx.style}">
           ${renderBody(node)}
           <div class="card-actions">
@@ -281,6 +291,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         </section>
       </main>`
     bindChoices()
+    bind('[data-action="dismiss-tutorial"]', () => {
+      if (!tutorial) return
+      game.markTutorialSeen(tutorial)
+      save()
+      renderNode()
+    })
     bind('[data-deduction-choice]', () => renderEvidenceBoard())
     root.querySelectorAll<HTMLElement>('[data-puzzle-choice]').forEach((button) => {
       button.addEventListener('click', () => renderPuzzles('', button.dataset.puzzleChoice))
@@ -328,7 +344,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   function evidenceBoardButton(): string {
     if (game.state.evidence.length === 0 || !story.evidence || !story.deductions) return ''
-    return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">线索板 ${game.state.evidence.length}</button>`
+    return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">推理板 ${game.state.evidence.length}</button>`
   }
 
   function deductionAction(): string {
@@ -337,6 +353,24 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     )
     if (game.state.evidence.length === 0 || !hasUnconfirmed) return ''
     return `<button class="btn btn-primary deduction-choice" data-deduction-choice>整理线索并推理（${game.state.evidence.length} 条）</button>`
+  }
+
+  function activeTutorial(hasPuzzle: boolean): 'deduction' | 'puzzle' | 'relationship' | null {
+    const hasUnconfirmedDeduction = game.state.evidence.length > 0 && Object.values(story.deductions ?? {})
+      .some((deduction) => !game.state.deductions.includes(deduction.id))
+    if (hasPuzzle && !game.hasSeenTutorial('puzzle')) return 'puzzle'
+    if (hasUnconfirmedDeduction && !game.hasSeenTutorial('deduction')) return 'deduction'
+    if (story.characters && Object.keys(story.characters).length > 0 && !game.hasSeenTutorial('relationship')) return 'relationship'
+    return null
+  }
+
+  function tutorialBanner(kind: 'deduction' | 'puzzle' | 'relationship'): string {
+    const content = {
+      deduction: ['推理板', '收集到的证据会进入推理板。选择一个推论并组合支持它的证据，可以解锁新的行动与结局。'],
+      puzzle: ['场景谜题', '醒目的谜题行动可以直接尝试；答案来自场景信息，遇到困难可查看渐进提示或返回调查。'],
+      relationship: ['人物关系', '你的回应会改变人物的信任与记忆，从而影响证词、秘密、行动或结局。'],
+    }[kind]
+    return `<aside class="tutorial-banner" data-tutorial="${kind}"><div><strong>${content[0]}</strong><span>${content[1]}</span></div><button class="btn btn-ghost" data-action="dismiss-tutorial">知道了</button></aside>`
   }
 
   function charactersButton(): string {
@@ -428,7 +462,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="back"]', () => renderNode())
   }
 
-  /** 证据组合线索板：选择推论和证据，提交给 Game 的确定性推论接口。 */
+  /** 推理板：选择推论和证据，提交给 Game 的确定性推论接口。 */
   function renderEvidenceBoard(resultMessage = ''): void {
     clearUnstable()
     const owned = game.state.evidence
@@ -437,15 +471,23 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const deductions = Object.values(story.deductions ?? {})
     root.innerHTML = `
       <main class="screen game-screen">
-        <header class="game-header"><span class="game-title">线索板</span><span class="game-step">${owned.length} 条证据</span></header>
+        <header class="game-header"><span class="game-title">推理板</span><span class="game-step">${owned.length} 条证据</span></header>
         <section class="card deduction-board">
           <p class="deduction-guide">先选择一项待证明的推论，再勾选支持它的证据，最后点击“验证推论”。证据不足时可以返回场景继续调查。</p>
           <h2 class="deduction-heading">待证明的推论</h2>
           <div class="deduction-list">${deductions.map((deduction, index) => {
             const confirmed = game.state.deductions.includes(deduction.id)
+            const ownedSet = new Set(game.state.evidence)
+            const required = deduction.requires.all ?? []
+            const alternativeGroups = deduction.requires.anyOf ?? []
+            const requiredOwned = required.filter((id) => ownedSet.has(id)).length
+            const groupsMet = alternativeGroups.filter((group) => group.some((id) => ownedSet.has(id))).length
             return `<label class="deduction-item ${confirmed ? 'deduction-confirmed' : ''}" data-deduction="${esc(deduction.id)}">
               <input type="radio" name="deduction" value="${esc(deduction.id)}" ${index === 0 ? 'checked' : ''} ${confirmed ? 'disabled' : ''}/>
-              <span>${esc(deduction.statement)}${confirmed ? ' · 已成立' : ''}</span>
+              <span><strong>${esc(deduction.statement)}${confirmed ? ' · 已成立' : ''}</strong>
+                <small data-deduction-progress="${esc(deduction.id)}">必需证据 ${requiredOwned}/${required.length}${alternativeGroups.length > 0 ? ` · 替代证据组 ${groupsMet}/${alternativeGroups.length}` : ''}</small>
+                ${deduction.hint && !confirmed ? `<small data-deduction-hint="${esc(deduction.id)}">调查方向：${esc(deduction.hint)}</small>` : ''}
+              </span>
             </label>`
           }).join('')}</div>
           <h2 class="deduction-heading">选择支持证据</h2>
@@ -567,6 +609,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="replay"]', () => {
       game = new Game(story)
       lastAchievements = [...game.state.achievements]
+      lastEvidence = []
       save()
       renderNode()
     })

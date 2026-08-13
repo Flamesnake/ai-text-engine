@@ -60,7 +60,7 @@ server.tool(
 
 server.tool(
   'story_upsert_node',
-  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, text, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
+  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
   { title: z.string(), node: StoryNodeSchema },
   wrap((args) => handlers.upsertNode(args)),
 )
@@ -85,7 +85,7 @@ server.tool(
 
 server.tool(
   'story_validate',
-  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义）并附路径探索模拟统计（各结局可达路径与最短步数）。',
+  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义），附路径探索统计和非阻断 experienceWarnings（目标、机制可发现性与结案后果）。',
   { title: z.string() },
   wrap((args) => handlers.validateStory(args.title)),
 )
@@ -134,7 +134,7 @@ server.tool(
 
 server.tool(
   'story_upsert_deduction',
-  '创建或覆盖一个推论定义。requires.all 要求全部证据，requires.anyOf 的每组要求至少一条。',
+  '创建或覆盖一个推论定义。requires.all 要求全部证据，requires.anyOf 的每组要求至少一条；hint 用于证据不足时提供非剧透调查方向。',
   { title: z.string(), deduction: DeductionSchema },
   wrap((args) => handlers.upsertDeduction(args)),
 )

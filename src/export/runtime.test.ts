@@ -364,7 +364,7 @@ describe('文本块与线索夹', () => {
   })
 })
 
-describe('证据线索板', () => {
+describe('证据推理板', () => {
   it('玩家组合已获得证据形成推论，返回场景后看到新选项', () => {
     const story = makeStory()
     story.evidence = {
@@ -374,9 +374,11 @@ describe('证据线索板', () => {
     story.deductions = {
       false_alibi: {
         id: 'false_alibi', statement: '管家的不在场证明不成立',
+        hint: '继续调查时钟，并争取目击者开口。',
         requires: { all: ['clock', 'testimony'] },
       },
     }
+    story.nodes.start.objective = '查明管家的不在场证明是否可信'
     story.nodes.start.onEnter = { gainEvidence: ['clock', 'testimony'] }
     story.nodes.start.choices.unshift({
       label: '揭穿管家', target: 'fight',
@@ -389,6 +391,10 @@ describe('证据线索板', () => {
     mountTextAdventure(root, story, { saveKey: 'test:deduction-board', storage })
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
 
+    expect(root.querySelector('.scene-objective')?.textContent).toContain('查明管家的不在场证明')
+    expect(root.querySelector('[data-tutorial="deduction"]')?.textContent).toContain('推理板')
+    ;(root.querySelector('[data-action="dismiss-tutorial"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-tutorial="deduction"]')).toBeNull()
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('揭穿管家')
     const deductionAction = root.querySelector<HTMLElement>('[data-deduction-choice]')
     expect(deductionAction?.textContent).toContain('整理线索并推理')
@@ -396,6 +402,8 @@ describe('证据线索板', () => {
     expect(root.querySelectorAll('[data-evidence]').length).toBe(2)
     expect(root.querySelector('[data-deduction="false_alibi"]')?.textContent).toContain('管家的不在场证明不成立')
     expect(root.querySelector('.deduction-guide')?.textContent).toContain('勾选支持它的证据')
+    expect(root.querySelector('[data-deduction-progress="false_alibi"]')?.textContent).toContain('必需证据 2/2')
+    expect(root.querySelector('[data-deduction-hint="false_alibi"]')?.textContent).toContain('继续调查时钟')
 
     root.querySelectorAll<HTMLInputElement>('[data-evidence]').forEach((input) => input.click())
     ;(root.querySelector('[data-action="confirm-deduction"]') as HTMLButtonElement).click()
@@ -403,6 +411,33 @@ describe('证据线索板', () => {
 
     ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('揭穿管家')
+  })
+
+  it('获得新证据时明确提示已加入推理板，首次教学状态随存档恢复', () => {
+    const story = makeStory()
+    story.evidence = {
+      clock: { id: 'clock', title: '停住的时钟', description: '停在十点。' },
+    }
+    story.deductions = {
+      truth: { id: 'truth', statement: '时钟被人为停下', requires: { all: ['clock'] } },
+    }
+    story.nodes.armed.onEnter = { gainEvidence: ['clock'] }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:evidence-notice', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+
+    expect(root.querySelector('.evidence-notice')?.textContent).toContain('停住的时钟')
+    expect(root.querySelector('.evidence-notice')?.textContent).toContain('已加入推理板')
+    expect(root.querySelector('[data-tutorial="deduction"]')).not.toBeNull()
+    ;(root.querySelector('[data-action="dismiss-tutorial"]') as HTMLButtonElement).click()
+
+    root.innerHTML = ''
+    mountTextAdventure(root, story, { saveKey: 'test:evidence-notice', storage })
+    ;(root.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-tutorial="deduction"]')).toBeNull()
   })
 })
 

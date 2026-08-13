@@ -44,10 +44,10 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
    （或直接用 `story_upsert_node` 覆盖 start 节点）。
 3. **写节点**：`story_upsert_node { node }` 逐个写入。先全部写完再校验——中途断链是正常的。
 4. **设风格/数值**（按需）：`story_set_meta { theme, hud }`；`story_upsert_achievement { achievement }`。
-5. **推理设计**（按需）：先用 `story_upsert_evidence` 定义证据，再用 `story_upsert_deduction` 定义证据要求；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
+5. **推理设计**（按需）：先用 `story_upsert_evidence` 定义证据，再用 `story_upsert_deduction` 定义证据要求与非剧透 `hint`；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
 6. **人物关系**（按需）：用 `story_upsert_character` 定义人物、关系维度和秘密；关系变化同时写入 `remember`，秘密揭示应影响证据、对话或结局。
 7. **轻量谜题**（按需）：用 `story_upsert_puzzle` 定义 `actionLabel`、密码、前置条件、由轻到重的提示和成功效果；在相关节点的 `puzzles` 中放置谜题，用 `#puzzle` 解锁内容。
-8. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
+8. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出；逐条处理非阻断的 `experienceWarnings`。可以用 `story_graph` 生成 mermaid 审查分支结构。
 9. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
 
 ## 节点数据格式速查
@@ -55,6 +55,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 ```jsonc
 {
   "id": "node_id",                 // 唯一
+  "objective": "当前目标的一句话说明", // 调查中心、谜题现场和结案阶段建议填写
   "text": "正文，{var} 插值，{#inventory} 道具列表，\\n 换行",
   "puzzles": ["safe_code"],       // 可选：在本场景显示醒目的解谜行动
   "choices": [
@@ -79,6 +80,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 - **成就**：`{ id, title, description, icon?, hidden?, when }`，`when` 支持特殊变量；
 - **线索/文档**：`story_upsert_document { document: { id, title, text, kind } }` 定义，节点用 `effects.gainDocs: ["d_id"]` 收集，玩家可在线索夹查看；条件 `#docs` 判断是否已获得；
 - **文本块**：节点可用 `blocks` 代替 `text` 混合排版：`{ type: "title"|"para"|"rules"|"note"|"letter", text, title? }` —— 规则怪谈的多份守则/便条就靠它；
+- **目标与教学**：节点 `objective` 显示当前目标；推理板、人物关系、场景谜题首次出现时运行时自动教学；`Deduction.hint` 只给调查方向，不泄露所缺证据名称；
 - **主题**：`story_set_meta { theme: "dark"|"cyber"|"cozy"|"paper" }` 或自定义配色对象 `{ accent, card, background, ... }`。
 
 ## 题材 → 配置映射
@@ -100,6 +102,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 
 - 推理作品必须保证正确结论能从游戏内证据推出；误导应有可发现的反证；关键证据尽量有替代获取路径；
 - 不要用普通 `flag` 冒充证据和推论：玩家拿到文档、掌握证据、确认推论是三个不同状态；
+- 关键机制不能只藏在顶部工具入口；调查中心、谜题现场和结案阶段应有 `objective`，获得证据后应能从主要行动进入推理板；
 - 不要只修改关系数值却不改变任何内容；关系应影响信息、选择、秘密或结局，记忆负责说明“为什么”；
 - 谜题答案必须能从游戏内信息推出；提示从轻到重；关键谜题必须允许玩家返回搜证，不能永久锁死；
 - 新谜题必须写清 `actionLabel` 并通过节点 `puzzles: [id]` 放进具体场景；不要依赖顶部“谜题”工具入口；谜题场景还应提供至少一个调查或转场行动；

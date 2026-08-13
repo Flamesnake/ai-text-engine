@@ -272,6 +272,35 @@ function collectConditionVars(cond: Condition): string[] {
   return out
 }
 
+/**
+ * 非阻断的玩家体验检查：用于提醒 Agent 改善目标与关键机制可发现性。
+ * 这些警告不代表剧情结构无效，也不会阻止导出。
+ */
+export function validateExperience(story: Story): string[] {
+  const warnings: string[] = []
+  for (const node of Object.values(story.nodes)) {
+    if (node.choices.length >= 4 && !node.objective?.trim()) {
+      warnings.push(`节点 "${node.id}" 有 ${node.choices.length} 个可选行动但没有 objective，玩家可能不清楚当前目标`)
+    }
+    for (const choice of node.choices) {
+      const target = story.nodes[choice.target]
+      if (target?.ending?.kind !== 'bad') continue
+      if (!/(结束|结案|离开|放弃|等待|认定|接受|指控)/.test(choice.label)) {
+        warnings.push(`节点 "${node.id}" 的选项「${choice.label}」直接进入坏结局，但文案没有明确提示会结束当前调查`)
+      }
+    }
+  }
+  for (const [deductionId, deduction] of Object.entries(story.deductions ?? {})) {
+    if (!deduction.hint?.trim()) warnings.push(`推论 "${deductionId}" 缺少 hint，证据不足时玩家没有调查方向`)
+  }
+  for (const puzzleId of Object.keys(story.puzzles ?? {})) {
+    if (!Object.values(story.nodes).some((node) => node.puzzles?.includes(puzzleId))) {
+      warnings.push(`谜题 "${puzzleId}" 没有放置到任何节点，只能依赖全局工具入口`)
+    }
+  }
+  return warnings
+}
+
 function collectSpecialRefs(cond: Condition | undefined, specialVar: string): string[] {
   if (!cond) return []
   const out: string[] = []

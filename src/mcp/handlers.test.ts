@@ -129,9 +129,11 @@ describe('story_validate / story_walk', () => {
     const res = (await handlers.validateStory('测试游戏')) as {
       validatePass: boolean
       problems: string[]
+      experienceWarnings: string[]
     }
     expect(res.validatePass).toBe(false)
     expect(res.problems.join('\n')).toContain('"ghost"')
+    expect(Array.isArray(res.experienceWarnings)).toBe(true)
   })
 })
 

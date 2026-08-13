@@ -123,6 +123,7 @@ export const DeductionSchema: z.ZodType<Deduction> = z.object({
   id: z.string(),
   statement: z.string(),
   description: z.string().optional(),
+  hint: z.string().optional(),
   requires: z.object({
     all: z.array(z.string()).optional(),
     anyOf: z.array(z.array(z.string())).optional(),
@@ -182,6 +183,7 @@ export const EndingMetaSchema: z.ZodType<EndingMeta> = z.object({
 
 export const StoryNodeSchema: z.ZodType<StoryNode> = z.object({
   id: z.string(),
+  objective: z.string().optional(),
   text: z.string(),
   blocks: z.array(TextBlockSchema).optional(),
   sfx: z.string().optional(),
@@ -242,6 +244,7 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
   solvedPuzzles: z.array(z.string()).default([]),
   puzzleAttempts: z.record(z.string(), z.number()).default({}),
   puzzleHints: z.record(z.string(), z.number()).default({}),
+  tutorialsSeen: z.array(z.string()).default([]),
   violations: z.array(z.string()),
   day: z.number(),
   achievements: z.array(z.string()),

@@ -104,6 +104,8 @@ export interface Deduction {
   id: string
   statement: string
   description?: string
+  /** 证据不足时给玩家的非剧透调查方向。 */
+  hint?: string
   requires: DeductionRequirement
   /** 推论首次确认时生效 */
   onConfirmed?: Effects
@@ -241,6 +243,8 @@ export interface Choice {
 
 export interface StoryNode {
   id: string
+  /** 当前场景的一句话目标，帮助玩家理解下一步。 */
+  objective?: string
   /** 正文；支持 {varName} 插值与 \n 换行（blocks 存在时忽略 text） */
   text: string
   /** 分类型文本块（可选）：para/rules/note/letter/title 混合排版 */
@@ -337,6 +341,8 @@ export interface GameState {
   puzzleAttempts: Record<string, number>
   /** 各谜题已揭示提示数 */
   puzzleHints: Record<string, number>
+  /** 已看过的一次性机制教学 id。 */
+  tutorialsSeen: string[]
   /** 已违反的规则 id（规则怪谈「违规度」） */
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */

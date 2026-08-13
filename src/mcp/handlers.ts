@@ -1,7 +1,7 @@
 import type {
   Achievement, Character, Deduction, Evidence, HudStat, Puzzle, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
-import { validate } from '../core/validate.js'
+import { validate, validateExperience } from '../core/validate.js'
 import { walkAllEndings } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
@@ -156,12 +156,14 @@ export async function deleteEnding(args: { title: string; endingId: string }): P
 export async function validateStory(title: string): Promise<unknown> {
   const story = await projects.loadStory(title)
   const problems = validate(story)
+  const experienceWarnings = validateExperience(story)
   const walk = walkAllEndings(story)
   return {
     ok: true,
     title,
     validatePass: problems.length === 0,
     problems,
+    experienceWarnings,
     nodeCount: Object.keys(story.nodes).length,
     endingCount: Object.keys(story.endings).length,
     walk,

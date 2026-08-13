@@ -35,6 +35,7 @@ choose('封住大门，开始调查')
 const openingActions = [...root.querySelectorAll('.choice-btn')].map((item) => item.textContent.trim())
 assert(openingActions.length >= 6, `调查大厅有效行动不足：${openingActions.length}`)
 assert(openingActions.includes('检查尸体和药瓶'), '调查入口不可发现')
+assert(root.querySelector('.scene-objective')?.textContent.includes('推理板组合验证'), '调查大厅没有显示当前目标')
 
 choose('检查尸体和药瓶')
 choose('带着药瓶回到大厅')
@@ -58,6 +59,8 @@ choose('带着账页返回大厅')
 
 assert(root.querySelector('[data-deduction-choice]')?.textContent.includes('整理线索并推理'), '获得证据后没有出现主要推理行动')
 click('[data-deduction-choice]', '整理线索并推理')
+assert(root.querySelector('.game-title')?.textContent.trim() === '推理板', '推理功能仍使用含糊的页面名称')
+assert(root.querySelector('[data-deduction-progress="butler_murder"]')?.textContent.includes('必需证据 2/2'), '推理板没有显示必需证据进度')
 const ownedEvidence = [...root.querySelectorAll('[data-evidence]')].map((item) => item.value)
 for (const required of ['swapped_bottle', 'ledger_page', 'son_testimony']) {
   assert(ownedEvidence.includes(required), `缺少真相路线证据：${required}`)
