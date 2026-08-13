@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "title": "十点十分的保险箱",
+    "subtitle": "一个密码谜题与渐进提示样例",
+    "version": "0.4.0",
+    "theme": "dark"
+  },
+  "start": "study",
+  "documents": {
+    "clock_note": {
+      "id": "clock_note",
+      "title": "维修记录",
+      "kind": "note",
+      "text": "书房旧钟停摆后，主人坚持让指针永远停在十点十分。他说：重要的四位数就在钟面上。"
+    }
+  },
+  "evidence": {
+    "ledger": {
+      "id": "ledger",
+      "title": "保险箱里的账本",
+      "description": "账本记录了管家暗中转移财产的时间和金额。",
+      "kind": "document",
+      "source": "safe_code"
+    }
+  },
+  "puzzles": {
+    "safe_code": {
+      "id": "safe_code",
+      "title": "书房保险箱",
+      "prompt": "锁盘要求输入四位数字。答案藏在书房里的维修记录中。",
+      "kind": "code",
+      "solution": "1010",
+      "hints": [
+        "先查看线索夹中的维修记录。",
+        "把钟面上的小时与分钟各写成两位，再连成四位数字。",
+        "十点十分写成两组两位数：10 和 10。"
+      ],
+      "onSolved": {
+        "gainEvidence": ["ledger"]
+      }
+    }
+  },
+  "nodes": {
+    "study": {
+      "id": "study",
+      "text": "书房墙上嵌着一只保险箱。桌旁的旧钟停在十点十分，抽屉里压着一张维修记录。",
+      "onEnter": { "gainDocs": ["clock_note"] },
+      "choices": [
+        {
+          "label": "取出保险箱里的账本",
+          "target": "ledger_found",
+          "when": { "op": "eq", "var": "#puzzle", "value": "safe_code" }
+        },
+        { "label": "暂时离开书房", "target": "leave" }
+      ]
+    },
+    "ledger_found": {
+      "id": "ledger_found",
+      "text": "锁舌弹开的声音很轻。账本却足以让整座山庄再也无法维持表面的平静。",
+      "choices": [],
+      "ending": { "id": "e_ledger", "title": "藏不住的账本", "kind": "true" }
+    },
+    "leave": {
+      "id": "leave",
+      "text": "你决定先离开。保险箱仍在墙中沉默，秘密也仍被锁住。",
+      "choices": [],
+      "ending": { "id": "e_leave", "title": "未打开的锁", "kind": "bad" }
+    }
+  },
+  "endings": {
+    "e_ledger": { "id": "e_ledger", "title": "藏不住的账本", "kind": "true" },
+    "e_leave": { "id": "e_leave", "title": "未打开的锁", "kind": "bad" }
+  }
+}

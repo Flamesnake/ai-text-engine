@@ -446,3 +446,43 @@ describe('人物关系页', () => {
     expect(root.querySelector('.ending-title')).not.toBeNull()
   })
 })
+
+describe('密码谜题页', () => {
+  it('玩家提交答案、查看渐进提示，解开后返回场景看到新选项', () => {
+    const story = makeStory()
+    story.puzzles = {
+      safe: {
+        id: 'safe', title: '书房保险箱', prompt: '输入四位密码。', kind: 'code',
+        solution: '2210', hints: ['观察时钟。', '按小时和分钟组合。'],
+      },
+    }
+    story.nodes.start.choices.unshift({
+      label: '打开保险箱', target: 'fight',
+      when: { op: 'eq', var: '#puzzle', value: 'safe' },
+    })
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:puzzle', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('打开保险箱')
+    ;(root.querySelector('[data-action="puzzles"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle="safe"]')?.textContent).toContain('书房保险箱')
+
+    const answer = root.querySelector<HTMLInputElement>('[data-puzzle-answer="safe"]')!
+    answer.value = '1234'
+    ;(root.querySelector('[data-action="attempt-puzzle"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('答案不正确')
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('1 次')
+
+    ;(root.querySelector('[data-action="puzzle-hint"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-hints]')?.textContent).toContain('观察时钟')
+
+    root.querySelector<HTMLInputElement>('[data-puzzle-answer="safe"]')!.value = '2210'
+    ;(root.querySelector('[data-action="attempt-puzzle"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('谜题已解开')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('打开保险箱')
+  })
+})

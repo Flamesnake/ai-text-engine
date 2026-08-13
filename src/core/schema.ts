@@ -7,6 +7,7 @@ import type {
   Evidence,
   Deduction,
   Character,
+  Puzzle,
   EndingMeta,
   FxItem,
   GameState,
@@ -141,6 +142,18 @@ export const CharacterSchema: z.ZodType<Character> = z.object({
   })).optional(),
 })
 
+export const PuzzleSchema: z.ZodType<Puzzle> = z.object({
+  id: z.string(),
+  title: z.string(),
+  prompt: z.string(),
+  kind: z.literal('code'),
+  solution: z.string(),
+  caseSensitive: z.boolean().optional(),
+  hints: z.array(z.string()).optional(),
+  requires: ConditionSchema.optional(),
+  onSolved: EffectsSchema.optional(),
+})
+
 /* ------------------------------ 节点 / 选项 / 结局 / 成就 ------------------------------ */
 
 const FX_NAMES = ['shake', 'flicker', 'glitch', 'pulse', 'unstable'] as const
@@ -209,6 +222,7 @@ export const StorySchema: z.ZodType<Story> = z.object({
   evidence: z.record(z.string(), EvidenceSchema).optional(),
   deductions: z.record(z.string(), DeductionSchema).optional(),
   characters: z.record(z.string(), CharacterSchema).optional(),
+  puzzles: z.record(z.string(), PuzzleSchema).optional(),
 })
 
 export const GameStateSchema: z.ZodType<GameState> = z.object({
@@ -223,6 +237,9 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
   relations: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   memories: z.array(z.string()).default([]),
   revealedSecrets: z.array(z.string()).default([]),
+  solvedPuzzles: z.array(z.string()).default([]),
+  puzzleAttempts: z.record(z.string(), z.number()).default({}),
+  puzzleHints: z.record(z.string(), z.number()).default({}),
   violations: z.array(z.string()),
   day: z.number(),
   achievements: z.array(z.string()),
@@ -233,7 +250,7 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
 /* ------------------------------ 解析 / 迁移 ------------------------------ */
 
 /** 当前 Schema 版本（写入 Story.meta.version） */
-export const SCHEMA_VERSION = '0.3.0'
+export const SCHEMA_VERSION = '0.4.0'
 
 /** schema 校验失败时的可读错误 */
 export class StorySchemaError extends Error {

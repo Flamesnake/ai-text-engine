@@ -11,6 +11,7 @@ import {
   EvidenceSchema,
   DeductionSchema,
   CharacterSchema,
+  PuzzleSchema,
 } from '../core/schema.js'
 
 /**
@@ -157,6 +158,20 @@ server.tool(
   '删除一个人物定义；删除后请根据校验结果清理关系与秘密引用。',
   { title: z.string(), characterId: z.string() },
   wrap((args) => handlers.deleteCharacter(args)),
+)
+
+server.tool(
+  'story_upsert_puzzle',
+  '创建或覆盖一个密码谜题，包含答案、渐进提示、前置条件与成功效果。',
+  { title: z.string(), puzzle: PuzzleSchema },
+  wrap((args) => handlers.upsertPuzzle(args)),
+)
+
+server.tool(
+  'story_delete_puzzle',
+  '删除一个谜题；删除后请根据校验结果清理 #puzzle 条件引用。',
+  { title: z.string(), puzzleId: z.string() },
+  wrap((args) => handlers.deletePuzzle(args)),
 )
 
 server.tool(

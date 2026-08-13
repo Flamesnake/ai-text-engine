@@ -306,6 +306,19 @@ body {
 .secret-revealed { border-left-color: var(--gold); }
 .secret-unknown { opacity: .68; }
 
+/* 密码谜题 */
+.puzzle-title { margin: 0 0 .7rem; font-size: 1.35rem; letter-spacing: .1em; }
+.puzzle-prompt { color: var(--text-dim); line-height: 1.8; }
+.puzzle-answer {
+  width: 100%; margin: .8rem 0; padding: .8rem 1rem; border: 1px solid var(--border);
+  border-radius: 4px; background: color-mix(in srgb, var(--card) 75%, black);
+  color: var(--text); font: inherit; letter-spacing: .12em;
+}
+.puzzle-answer:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.puzzle-hints { color: var(--gold); line-height: 1.7; }
+.puzzle-result { min-height: 1.5em; color: var(--accent); }
+.puzzle-solved { color: var(--green); border: 1px solid var(--green); padding: .7rem; margin: 1rem 0; }
+
 /* 节点动画 fx（幅度/频率由 CSS 变量控制，runtime 按 FxSpec 注入） */
 .fx-shake { animation: fx-shake var(--fx-shake-dur, .45s) ease-in-out infinite; }
 @keyframes fx-shake {

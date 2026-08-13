@@ -252,6 +252,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${puzzlesButton()}
           ${charactersButton()}
           ${evidenceBoardButton()}
           ${docsButton()}
@@ -275,6 +276,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="docs"]', () => renderDocsList())
     bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
     bind('[data-action="characters"]', () => renderCharacters())
+    bind('[data-action="puzzles"]', () => renderPuzzles())
     bindMute()
     const cardEl = root.querySelector<HTMLElement>('.card')
     if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
@@ -320,6 +322,59 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   function charactersButton(): string {
     if (!story.characters || Object.keys(story.characters).length === 0) return ''
     return `<button class="btn btn-ghost docs-btn" data-action="characters">人物</button>`
+  }
+
+  function puzzlesButton(): string {
+    if (!story.puzzles || (game.availablePuzzles().length === 0 && game.state.solvedPuzzles.length === 0)) return ''
+    const unsolved = game.availablePuzzles().length
+    return `<button class="btn btn-ghost docs-btn" data-action="puzzles">谜题${unsolved > 0 ? ` ${unsolved}` : ''}</button>`
+  }
+
+  /** 密码谜题页：确定性答案验证、错误次数和渐进提示。 */
+  function renderPuzzles(message = '', preferredId?: string): void {
+    clearUnstable()
+    const available = game.availablePuzzles()
+    const solved = game.state.solvedPuzzles
+      .map((id) => story.puzzles?.[id])
+      .filter((puzzle): puzzle is NonNullable<typeof puzzle> => Boolean(puzzle))
+    const puzzles = [...available, ...solved.filter((puzzle) => !available.some((item) => item.id === puzzle.id))]
+    const active = puzzles.find((puzzle) => puzzle.id === preferredId) ?? puzzles[0]
+    const revealedCount = active ? (game.state.puzzleHints[active.id] ?? 0) : 0
+    const revealedHints = active?.hints?.slice(0, revealedCount) ?? []
+    const isSolved = active ? game.state.solvedPuzzles.includes(active.id) : false
+    root.innerHTML = `
+      <main class="screen game-screen">
+        <header class="game-header"><span class="game-title">谜题</span><span class="game-step">${puzzles.length} 项</span></header>
+        ${active ? `<section class="card puzzle-card" data-puzzle="${esc(active.id)}">
+          <h2 class="puzzle-title">${esc(active.title)}</h2>
+          <p class="puzzle-prompt">${esc(active.prompt)}</p>
+          ${isSolved ? '<div class="puzzle-solved">已解开</div>' : `<input class="puzzle-answer" data-puzzle-answer="${esc(active.id)}" autocomplete="off" aria-label="谜题答案"/>
+          <div class="card-actions puzzle-actions">
+            <button class="btn btn-primary" data-action="attempt-puzzle">提交答案</button>
+            ${active.hints?.length ? '<button class="btn btn-ghost" data-action="puzzle-hint">查看提示</button>' : ''}
+          </div>`}
+          <div data-puzzle-hints class="puzzle-hints">${revealedHints.map((hint, index) => `<p>提示 ${index + 1}：${esc(hint)}</p>`).join('')}</div>
+          <p data-puzzle-result class="puzzle-result">${esc(message)}</p>
+        </section>` : '<section class="card"><p>当前没有可用谜题。</p></section>'}
+        <div class="card-actions"><button class="btn" data-action="back">返回</button></div>
+      </main>`
+    bind('[data-action="back"]', () => renderNode())
+    bind('[data-action="attempt-puzzle"]', () => {
+      if (!active) return
+      const answer = root.querySelector<HTMLInputElement>(`[data-puzzle-answer="${cssEscape(active.id)}"]`)?.value ?? ''
+      const result = game.attemptPuzzle(active.id, answer)
+      save()
+      renderPuzzles(
+        result.solved ? '谜题已解开。新的行动可能已经解锁。' : `答案不正确，已尝试 ${result.attempts} 次。`,
+        active.id,
+      )
+    })
+    bind('[data-action="puzzle-hint"]', () => {
+      if (!active) return
+      const result = game.revealPuzzleHint(active.id)
+      save()
+      renderPuzzles(result.hint ? `已揭示提示 ${result.revealed} / ${result.total}` : '没有更多提示。', active.id)
+    })
   }
 
   /** 人物页：展示人物说明、当前关系与已揭示/未知秘密。 */
@@ -467,6 +522,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
+          ${puzzlesButton()}
           ${charactersButton()}
           ${evidenceBoardButton()}
           ${docsButton()}
@@ -485,6 +541,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="docs"]', () => renderDocsList())
     bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
     bind('[data-action="characters"]', () => renderCharacters())
+    bind('[data-action="puzzles"]', () => renderPuzzles())
     bindMute()
     bind('[data-action="replay"]', () => {
       game = new Game(story)
@@ -554,6 +611,11 @@ function esc(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+/** CSS 属性选择器中的值转义（现代浏览器优先 CSS.escape，测试环境回退）。 */
+function cssEscape(text: string): string {
+  return globalThis.CSS?.escape ? globalThis.CSS.escape(text) : text.replace(/["\\]/g, '\\$&')
 }
 
 /** 文档/块类型 → 中文标签 */

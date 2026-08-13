@@ -132,6 +132,20 @@ export interface Character {
   secrets?: Record<string, CharacterSecret>
 }
 
+/* ------------------------------ 谜题 ------------------------------ */
+
+export interface Puzzle {
+  id: string
+  title: string
+  prompt: string
+  kind: 'code'
+  solution: string
+  caseSensitive?: boolean
+  hints?: string[]
+  requires?: Condition
+  onSolved?: Effects
+}
+
 /* ------------------------------ 文本块 / 文档线索 ------------------------------ */
 
 /** 节点正文块类型（blocks 存在时优先于 text 渲染） */
@@ -288,6 +302,8 @@ export interface Story {
   deductions?: Record<string, Deduction>
   /** 结构化人物、关系维度与秘密 */
   characters?: Record<string, Character>
+  /** 可交互谜题 */
+  puzzles?: Record<string, Puzzle>
 }
 
 /* ------------------------------ 运行时状态 ------------------------------ */
@@ -311,6 +327,12 @@ export interface GameState {
   memories: string[]
   /** 已揭示秘密，格式 characterId:secretId */
   revealedSecrets: string[]
+  /** 已解决谜题 id */
+  solvedPuzzles: string[]
+  /** 各谜题错误尝试次数 */
+  puzzleAttempts: Record<string, number>
+  /** 各谜题已揭示提示数 */
+  puzzleHints: Record<string, number>
   /** 已违反的规则 id（规则怪谈「违规度」） */
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */

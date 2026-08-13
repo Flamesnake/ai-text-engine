@@ -1,5 +1,5 @@
 import type {
-  Achievement, Character, Deduction, Evidence, HudStat, StoryDocument, StoryNode, ThemeConfig,
+  Achievement, Character, Deduction, Evidence, HudStat, Puzzle, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
 import { validate } from '../core/validate.js'
 import { walkAllEndings } from '../core/walk.js'
@@ -400,6 +400,31 @@ export async function deleteCharacter(args: { title: string; characterId: string
   return { ok: true, deleted: true, characterId: args.characterId, validate: problems, validatePass: problems.length === 0 }
 }
 
+export async function upsertPuzzle(args: { title: string; puzzle: Puzzle }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.puzzle?.id) throw new Error('puzzle.id 不能为空')
+  story.puzzles ??= {}
+  const created = !story.puzzles[args.puzzle.id]
+  story.puzzles[args.puzzle.id] = args.puzzle
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, puzzleId: args.puzzle.id,
+    count: Object.keys(story.puzzles).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deletePuzzle(args: { title: string; puzzleId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.puzzles ??= {}
+  if (!story.puzzles[args.puzzleId]) return { ok: true, deleted: false }
+  delete story.puzzles[args.puzzleId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, puzzleId: args.puzzleId, validate: problems, validatePass: problems.length === 0 }
+}
+
 export async function listProjects(): Promise<unknown> {
   const refs = await projects.listProjects()
   const detailed = []
@@ -442,6 +467,8 @@ export const tools = {
   story_delete_deduction: (args: { title: string; deductionId: string }) => deleteDeduction(args),
   story_upsert_character: (args: { title: string; character: Character }) => upsertCharacter(args),
   story_delete_character: (args: { title: string; characterId: string }) => deleteCharacter(args),
+  story_upsert_puzzle: (args: { title: string; puzzle: Puzzle }) => upsertPuzzle(args),
+  story_delete_puzzle: (args: { title: string; puzzleId: string }) => deletePuzzle(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
   story_walk: (args: { title: string }) => validateStory(args.title),
   story_graph: (args: { title: string }) => graph(args.title),

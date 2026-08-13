@@ -272,3 +272,19 @@ describe('story_upsert_character / story_delete_character', () => {
     expect(result.story.characters?.maid).toEqual(character)
   })
 })
+
+describe('story_upsert_puzzle / story_delete_puzzle', () => {
+  it('Agent 可幂等定义带提示和成功效果的密码谜题', async () => {
+    await createTestProject()
+    const puzzle = {
+      id: 'safe', title: '保险箱', prompt: '输入四位密码', kind: 'code' as const,
+      solution: '2210', hints: ['观察时钟'], onSolved: { flag: { safe_open: true } },
+    }
+    const first = await handlers.upsertPuzzle({ title: '测试游戏', puzzle }) as { created: boolean }
+    const second = await handlers.upsertPuzzle({ title: '测试游戏', puzzle }) as { created: boolean }
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(false)
+    const result = await handlers.getStory('测试游戏') as { story: { puzzles?: Record<string, unknown> } }
+    expect(result.story.puzzles?.safe).toEqual(puzzle)
+  })
+})

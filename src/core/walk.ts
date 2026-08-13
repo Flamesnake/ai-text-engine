@@ -40,6 +40,7 @@ interface SimState {
   relations: Record<string, Record<string, number>>
   memories: string[]
   revealedSecrets: string[]
+  solvedPuzzles: string[]
   violations: string[]
   day: number
   /** 去重后的已访问节点（与 GameState.visited 语义一致，供 #visited 条件） */
@@ -87,6 +88,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   const initial: SimState = {
     vars: {}, inventory: [], docs: [], evidence: [], deductions: [],
     relations: initialRelations, memories: [], revealedSecrets: [],
+    solvedPuzzles: [],
     violations: [], day: 1, visited: [],
   }
 
@@ -139,28 +141,59 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     // 线索板是场景外动作：同时探索“不确认”和所有当前可确认的推论组合。
     // 这样推论解锁的选项不会被误报不可达，同时保留玩家暂不推理的路径。
     for (const deductionState of deductionVariants(st, s)) {
+      for (const puzzleState of puzzleVariants(st, deductionState, depth)) {
       const ctx: ConditionContext = {
-        vars: deductionState.vars,
-        inventory: deductionState.inventory,
+        vars: puzzleState.vars,
+        inventory: puzzleState.inventory,
         steps: depth,
         endingId: null,
-        visited: deductionState.visited,
-        docs: deductionState.docs,
-        day: deductionState.day,
-        violations: deductionState.violations,
-        evidence: deductionState.evidence,
-        deductions: deductionState.deductions,
-        relations: deductionState.relations,
-        memories: deductionState.memories,
-        revealedSecrets: deductionState.revealedSecrets,
+        visited: puzzleState.visited,
+        docs: puzzleState.docs,
+        day: puzzleState.day,
+        violations: puzzleState.violations,
+        evidence: puzzleState.evidence,
+        deductions: puzzleState.deductions,
+        relations: puzzleState.relations,
+        memories: puzzleState.memories,
+        revealedSecrets: puzzleState.revealedSecrets,
+        solvedPuzzles: puzzleState.solvedPuzzles,
       }
       const visible = node.choices.filter((c) => evalCondition(c.when, ctx))
       for (const choice of visible) {
-        const s2 = cloneState(deductionState)
+        const s2 = cloneState(puzzleState)
         applySimEffects(choice.effects, s2)
         dfs(st, choice.target, s2, depth + 1, nextVis)
       }
+      }
     }
+  }
+
+  /** 枚举当前可解决谜题的状态组合（含暂不解谜）。 */
+  function puzzleVariants(st: Story, initialState: SimState, depth: number): SimState[] {
+    const variants: SimState[] = [cloneState(initialState)]
+    const seen = new Set<string>([''])
+    for (let index = 0; index < variants.length; index++) {
+      const current = variants[index]
+      const ctx: ConditionContext = {
+        vars: current.vars, inventory: current.inventory, steps: depth, endingId: null,
+        visited: current.visited, docs: current.docs, day: current.day,
+        violations: current.violations, evidence: current.evidence, deductions: current.deductions,
+        relations: current.relations, memories: current.memories,
+        revealedSecrets: current.revealedSecrets, solvedPuzzles: current.solvedPuzzles,
+      }
+      for (const puzzle of Object.values(st.puzzles ?? {})) {
+        if (current.solvedPuzzles.includes(puzzle.id) || !evalCondition(puzzle.requires, ctx)) continue
+        const next = cloneState(current)
+        next.solvedPuzzles.push(puzzle.id)
+        applySimEffects(puzzle.onSolved, next)
+        const key = [...next.solvedPuzzles].sort().join('\u0000')
+        if (!seen.has(key)) {
+          seen.add(key)
+          variants.push(next)
+        }
+      }
+    }
+    return variants
   }
 
   /** 枚举玩家在当前证据下可以选择确认的推论状态（含一个都不确认）。 */
@@ -225,6 +258,7 @@ function cloneState(s: SimState): SimState {
     relations: structuredClone(s.relations),
     memories: [...s.memories],
     revealedSecrets: [...s.revealedSecrets],
+    solvedPuzzles: [...s.solvedPuzzles],
     violations: [...s.violations],
     day: s.day,
     visited: [...s.visited],

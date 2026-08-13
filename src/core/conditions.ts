@@ -21,6 +21,7 @@ export interface ConditionContext {
   relations?: Record<string, Record<string, number>>
   memories?: string[]
   revealedSecrets?: string[]
+  solvedPuzzles?: string[]
 }
 
 /** 特殊变量（以 # 开头）：#steps / #ending / #visited */
@@ -129,6 +130,10 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     case '#secret': {
       const has = cond.value !== undefined && (ctx.revealedSecrets ?? []).includes(String(cond.value))
       return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+    }
+    case '#puzzle': {
+      const solved = cond.value !== undefined && (ctx.solvedPuzzles ?? []).includes(String(cond.value))
+      return cond.op === 'eq' ? solved : cond.op === 'ne' ? !solved : false
     }
     default:
       return false

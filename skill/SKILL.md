@@ -23,6 +23,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 | `story_upsert_evidence` / `story_delete_evidence` | 管理可用于推理的证据 |
 | `story_upsert_deduction` / `story_delete_deduction` | 管理证据组合推论 |
 | `story_upsert_character` / `story_delete_character` | 管理人物、关系维度与秘密 |
+| `story_upsert_puzzle` / `story_delete_puzzle` | 管理密码谜题、渐进提示和成功效果 |
 | `story_set_meta` | 主题 / HUD 统计条 / 副标题 / 作者 |
 | `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
 | `story_walk` | 路径探索模拟（各结局路径数 / 最短步数） |
@@ -45,8 +46,9 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 4. **设风格/数值**（按需）：`story_set_meta { theme, hud }`；`story_upsert_achievement { achievement }`。
 5. **推理设计**（按需）：先用 `story_upsert_evidence` 定义证据，再用 `story_upsert_deduction` 定义证据要求；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
 6. **人物关系**（按需）：用 `story_upsert_character` 定义人物、关系维度和秘密；关系变化同时写入 `remember`，秘密揭示应影响证据、对话或结局。
-7. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
-8. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
+7. **轻量谜题**（按需）：用 `story_upsert_puzzle` 定义密码、前置条件、由轻到重的提示和成功效果；用 `#puzzle` 解锁内容。
+8. **校验与走查**：`story_validate { title }` —— 通过且 `unreachableEndings` 为空、`walk.endings` 覆盖全部结局后再导出。可以用 `story_graph` 生成 mermaid 审查分支结构。
+9. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
 
 ## 节点数据格式速查
 
@@ -88,6 +90,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 | 赛博/科幻 | `theme: "cyber"`；变量：信用点/黑客等级 |
 | 温馨/恋爱 | `theme: "cozy"`；`hud` 显示好感度进度条；成就：隐藏好感事件 |
 | 人物关系 | 为人物定义少量有意义的关系维度；关系变化配套 `remember`，达到门槛后揭示秘密、证据或新行动 |
+| 解谜 | `puzzles` 定义可由游戏内信息推出的密码和渐进提示；`onSolved` 发放证据或效果，`#puzzle` 解锁后续 |
 | 复古/蒸汽 | `theme: "paper"` |
 | RPG 冒险 | 道具 `gain`/`lose` + 数值变量 + `when` 条件解锁选项 |
 | 收集/多结局 | `achievements` 按 `#ending`/`#visited` 条件收集 |
@@ -97,6 +100,7 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 - 推理作品必须保证正确结论能从游戏内证据推出；误导应有可发现的反证；关键证据尽量有替代获取路径；
 - 不要用普通 `flag` 冒充证据和推论：玩家拿到文档、掌握证据、确认推论是三个不同状态；
 - 不要只修改关系数值却不改变任何内容；关系应影响信息、选择、秘密或结局，记忆负责说明“为什么”；
+- 谜题答案必须能从游戏内信息推出；提示从轻到重；关键谜题必须允许玩家返回搜证，不能永久锁死；
 
 - 结局节点 `choices` 必须为空且带 `ending`；`upsert` 会自动登记结局到结局表；
 - 所有选项 `target` 必须指向存在的节点；`story_validate` 会报告断链、不可达节点、变量拼写错误；

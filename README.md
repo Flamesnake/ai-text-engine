@@ -17,7 +17,7 @@
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 104 个测试（vitest）
+npm test             # 111 个测试（vitest）
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 ```
 
@@ -62,6 +62,7 @@ node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
 | `story_upsert_evidence` / `story_delete_evidence` | 添加/删除可用于推理的证据 |
 | `story_upsert_deduction` / `story_delete_deduction` | 添加/删除证据组合推论 |
 | `story_upsert_character` / `story_delete_character` | 添加/删除包含关系维度与秘密的人物 |
+| `story_upsert_puzzle` / `story_delete_puzzle` | 添加/删除密码谜题、渐进提示与成功效果 |
 | `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
 | `story_walk` | 路径探索模拟（各结局路径数 / 最短步数 / 未到达结局） |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
@@ -274,6 +275,26 @@ interface Character {
 - 秘密条件：`{ op: 'eq', var: '#secret', value: 'maid:hidden_corridor' }`。
 
 玩家可在游戏中的“人物”页查看当前关系和已揭示秘密。完整约定见 `docs/relationships-mvp.md`，样例见 `examples/relationship-demo.story.json`。
+
+## 密码谜题与渐进提示
+
+第一版谜题采用确定性的密码输入，不依赖联网模型：
+
+```ts
+interface Puzzle {
+  id: string
+  title: string
+  prompt: string
+  kind: 'code'
+  solution: string
+  caseSensitive?: boolean
+  hints?: string[]
+  requires?: Condition
+  onSolved?: Effects
+}
+```
+
+玩家通过游戏内信息推导答案，在“谜题”页输入并验证；错误尝试、提示进度和已解状态都会保存。节点用 `#puzzle` 条件解锁后续内容。完整约定见 `docs/puzzles-mvp.md`，样例见 `examples/puzzle-demo.story.json`。
 
 ## AI 使用指引（典型工作流）
 

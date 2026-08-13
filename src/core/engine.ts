@@ -33,6 +33,9 @@ export class Game {
         relations: structuredClone(save.relations ?? this.initialRelations()),
         memories: [...(save.memories ?? [])],
         revealedSecrets: [...(save.revealedSecrets ?? [])],
+        solvedPuzzles: [...(save.solvedPuzzles ?? [])],
+        puzzleAttempts: { ...(save.puzzleAttempts ?? {}) },
+        puzzleHints: { ...(save.puzzleHints ?? {}) },
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
         achievements: [...(save.achievements ?? [])],
@@ -52,6 +55,9 @@ export class Game {
         relations: this.initialRelations(),
         memories: [],
         revealedSecrets: [],
+        solvedPuzzles: [],
+        puzzleAttempts: {},
+        puzzleHints: {},
         violations: [],
         day: 1,
         achievements: [],
@@ -120,6 +126,9 @@ export class Game {
       relations: this.initialRelations(),
       memories: [],
       revealedSecrets: [],
+      solvedPuzzles: [],
+      puzzleAttempts: {},
+      puzzleHints: {},
       violations: [],
       day: 1,
       achievements: [],
@@ -165,6 +174,9 @@ export class Game {
       relations: structuredClone(this.st.relations),
       memories: [...this.st.memories],
       revealedSecrets: [...this.st.revealedSecrets],
+      solvedPuzzles: [...this.st.solvedPuzzles],
+      puzzleAttempts: { ...this.st.puzzleAttempts },
+      puzzleHints: { ...this.st.puzzleHints },
       violations: [...this.st.violations],
       day: this.st.day,
       achievements: [...this.st.achievements],
@@ -224,6 +236,50 @@ export class Game {
     return true
   }
 
+  availablePuzzles() {
+    return Object.values(this.story.puzzles ?? {}).filter(
+      (puzzle) =>
+        !this.st.solvedPuzzles.includes(puzzle.id) &&
+        evalCondition(puzzle.requires, this.conditionContext()),
+    )
+  }
+
+  attemptPuzzle(puzzleId: string, answer: string): { solved: boolean; attempts: number } {
+    const puzzle = this.story.puzzles?.[puzzleId]
+    const attempts = this.st.puzzleAttempts[puzzleId] ?? 0
+    if (!puzzle || !evalCondition(puzzle.requires, this.conditionContext())) {
+      return { solved: false, attempts }
+    }
+    if (this.st.solvedPuzzles.includes(puzzleId)) return { solved: true, attempts }
+    const normalize = (value: string): string => {
+      const trimmed = value.trim()
+      return puzzle.caseSensitive ? trimmed : trimmed.toLocaleLowerCase()
+    }
+    if (normalize(answer) !== normalize(puzzle.solution)) {
+      this.st.puzzleAttempts[puzzleId] = attempts + 1
+      return { solved: false, attempts: attempts + 1 }
+    }
+    this.st.solvedPuzzles.push(puzzleId)
+    const target = this.effectTarget()
+    applyEffects(puzzle.onSolved, target)
+    this.st.day = target.day
+    this.checkAchievements()
+    return { solved: true, attempts }
+  }
+
+  revealPuzzleHint(puzzleId: string): { hint: string | null; revealed: number; total: number } {
+    const puzzle = this.story.puzzles?.[puzzleId]
+    if (!puzzle || !evalCondition(puzzle.requires, this.conditionContext())) {
+      return { hint: null, revealed: 0, total: 0 }
+    }
+    const hints = puzzle.hints ?? []
+    const revealed = Math.min(this.st.puzzleHints[puzzleId] ?? 0, hints.length)
+    if (revealed >= hints.length) return { hint: null, revealed, total: hints.length }
+    const next = revealed + 1
+    this.st.puzzleHints[puzzleId] = next
+    return { hint: hints[revealed], revealed: next, total: hints.length }
+  }
+
   private conditionContext(): ConditionContext {
     return {
       vars: this.st.vars,
@@ -239,6 +295,7 @@ export class Game {
       relations: this.st.relations,
       memories: this.st.memories,
       revealedSecrets: this.st.revealedSecrets,
+      solvedPuzzles: this.st.solvedPuzzles,
     }
   }
 

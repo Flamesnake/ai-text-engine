@@ -102,6 +102,24 @@ export function validate(story: Story): string[] {
       if (secret.id !== secretId) problems.push(`角色 "${characterId}" 的秘密键 "${secretId}" 与 id "${secret.id}" 不一致`)
     }
   }
+  for (const [puzzleId, puzzle] of Object.entries(story.puzzles ?? {})) {
+    if (puzzle.id !== puzzleId) problems.push(`谜题键 "${puzzleId}" 与 id "${puzzle.id}" 不一致`)
+    if (!puzzle.title) problems.push(`谜题 "${puzzleId}" 缺少 title`)
+    if (!puzzle.prompt) problems.push(`谜题 "${puzzleId}" 缺少 prompt`)
+    if (!puzzle.solution.trim()) problems.push(`谜题 "${puzzleId}" 的 solution 不能为空`)
+    if ((puzzle.hints ?? []).some((hint) => !hint.trim())) problems.push(`谜题 "${puzzleId}" 包含空提示`)
+    for (const evidenceId of puzzle.onSolved?.gainEvidence ?? []) {
+      if (!story.evidence?.[evidenceId]) {
+        problems.push(`gainEvidence 引用了不存在的证据 "${evidenceId}"`)
+      }
+    }
+    for (const docId of puzzle.onSolved?.gainDocs ?? []) {
+      if (!story.documents?.[docId]) {
+        problems.push(`gainDocs 引用了不存在的文档 "${docId}"（story.documents 中未定义）`)
+      }
+    }
+    collectEffects(puzzle.onSolved, writtenVars, writtenItems, writtenDocs, gainedEvidence)
+  }
   const validateRelationshipEffects = (effects: Effects | undefined): void => {
     for (const change of effects?.adjustRelation ?? []) {
       const character = story.characters?.[change.characterId]
@@ -172,6 +190,9 @@ export function validate(story: Story): string[] {
         }
         for (const ref of collectSpecialRefs(choice.when, '#deduction')) {
           if (!story.deductions?.[ref]) problems.push(`条件引用了不存在的推论 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(choice.when, '#puzzle')) {
+          if (!story.puzzles?.[ref]) problems.push(`谜题条件引用了不存在的谜题 "${ref}"`)
         }
         for (const v of collectConditionVars(choice.when)) {
           if (!writtenVars.has(v) && !writtenItems.has(v)) {
