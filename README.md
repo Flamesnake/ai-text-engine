@@ -94,7 +94,7 @@ npm run check:package
 ```bash
 node dist/cli.js doctor
 node dist/cli.js install-skill --client codex
-codex mcp add talespindle-local -- node E:/path/to/ai-text-engine/dist/cli.js mcp
+codex mcp add talespindle-local -- node E:/path/to/talespindle/dist/cli.js mcp
 ```
 
 配套 Skill 源文件位于 `skill/SKILL.md`。客户端加载的是已安装副本；修改 Skill 源文件后需要重新运行 `install-skill --force`。`npm run check:release` 会读取本机 `projects/` 做兼容性回归，但不会复制、修改或上传作品。
