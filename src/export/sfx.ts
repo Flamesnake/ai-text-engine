@@ -4,9 +4,13 @@
  * 浏览器端专用：AudioContext 在首次播放时惰性创建（符合浏览器自动播放策略）。
  */
 
+import type { SfxName } from '../core/types.js'
+export type { SfxName } from '../core/types.js'
+
 const MUTE_KEY = 'ate:sfx:muted'
 
 let audioCtx: AudioContext | null = null
+let masterGain: GainNode | null = null
 let muted = false
 
 /** 是否静音 */
@@ -17,6 +21,9 @@ export function isMuted(): boolean {
 /** 设置静音（持久化到 localStorage） */
 export function setMuted(value: boolean): void {
   muted = value
+  if (audioCtx && masterGain && audioCtx.state !== 'closed') {
+    masterGain.gain.setValueAtTime(value ? 0 : 1, audioCtx.currentTime)
+  }
   try {
     localStorage.setItem(MUTE_KEY, value ? '1' : '0')
   } catch {
@@ -41,7 +48,16 @@ export function initSfx(): void {
 
 function ensureCtx(): AudioContext | null {
   if (typeof window === 'undefined' || typeof AudioContext === 'undefined') return null
-  if (!audioCtx) audioCtx = new AudioContext()
+  if (audioCtx?.state === 'closed') {
+    audioCtx = null
+    masterGain = null
+  }
+  if (!audioCtx) {
+    audioCtx = new AudioContext()
+    masterGain = audioCtx.createGain()
+    masterGain.connect(audioCtx.destination)
+    masterGain.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime)
+  }
   if (audioCtx.state === 'suspended') void audioCtx.resume()
   return audioCtx
 }
@@ -70,22 +86,10 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
   g.gain.linearRampToValueAtTime(gain, t0 + 0.012)
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration)
   osc.connect(g)
-  g.connect(ctx.destination)
+  g.connect(masterGain ?? ctx.destination)
   osc.start(t0)
   osc.stop(t0 + duration + 0.05)
 }
-
-/** 内置音效名 */
-export type SfxName =
-  | 'click' // 选项点击
-  | 'page' // 翻页/线索
-  | 'heartbeat' // 心跳（恐怖节点）
-  | 'drone' // 低频氛围
-  | 'achievement' // 成就解锁
-  | 'ending_good'
-  | 'ending_bad'
-  | 'ending_true'
-  | 'shock' // 惊吓
 
 const SFX: Record<SfxName, (ctx: AudioContext) => void> = {
   click: (ctx) => tone(ctx, { type: 'square', freq: 520, endFreq: 380, duration: 0.06, gain: 0.04 }),
@@ -114,6 +118,11 @@ const SFX: Record<SfxName, (ctx: AudioContext) => void> = {
     tone(ctx, { type: 'sine', freq: 392, duration: 0.4, gain: 0.05 })
     tone(ctx, { type: 'sine', freq: 294, duration: 0.5, gain: 0.04, delay: 0.3 })
   },
+  ending_hidden: (ctx) => {
+    tone(ctx, { type: 'sine', freq: 330, duration: 0.32, gain: 0.045 })
+    tone(ctx, { type: 'triangle', freq: 494, duration: 0.5, gain: 0.04, delay: 0.22 })
+    tone(ctx, { type: 'sine', freq: 659, duration: 0.7, gain: 0.035, delay: 0.46 })
+  },
   shock: (ctx) => {
     tone(ctx, { type: 'square', freq: 980, endFreq: 520, duration: 0.1, gain: 0.05 })
     tone(ctx, { type: 'sine', freq: 60, endFreq: 30, duration: 0.35, gain: 0.22, delay: 0.02 })
@@ -129,5 +138,18 @@ export function playSfx(name: SfxName): void {
     SFX[name](ctx)
   } catch {
     /* 音频失败静默，不打断游戏 */
+  }
+}
+
+/** 宿主卸载游戏或测试结束时释放共享 AudioContext。 */
+export async function disposeSfx(): Promise<void> {
+  const ctx = audioCtx
+  audioCtx = null
+  masterGain = null
+  if (!ctx || ctx.state === 'closed') return
+  try {
+    await ctx.close()
+  } catch {
+    /* 音频环境销毁失败不阻断宿主卸载 */
   }
 }

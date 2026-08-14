@@ -1,6 +1,6 @@
 import { Game } from '../core/engine.js'
-import type { EndingMeta, GameState, Story, StoryNode, TextBlock } from '../core/types.js'
-import { initSfx, isMuted, playSfx, toggleMuted, type SfxName } from './sfx.js'
+import type { EndingMeta, GameState, PresentationConfig, Story, StoryNode, TextBlock, TextSegment } from '../core/types.js'
+import { disposeSfx, initSfx, isMuted, playSfx, toggleMuted, type SfxName } from './sfx.js'
 
 /**
  * 运行时渲染器：内嵌于导出的单文件 HTML 中（经 esbuild bundle 成 IIFE）。
@@ -15,7 +15,12 @@ export interface MountOptions {
   storage?: Storage
 }
 
-export function mountTextAdventure(root: HTMLElement, story: Story, options?: MountOptions): void {
+export interface MountedTextAdventure {
+  /** 清理持续动画、页面内容与共享 AudioContext。 */
+  destroy(): Promise<void>
+}
+
+export function mountTextAdventure(root: HTMLElement, story: Story, options?: MountOptions): MountedTextAdventure {
   const storage = options?.storage ?? window.localStorage
   const saveKey = options?.saveKey ?? `ate:${story.meta.title}`
   let game: Game
@@ -142,9 +147,29 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     schedule()
   }
 
-  /** 播放节点音效（node.sfx，未知名静默） */
+  /** 播放经过 Schema 验证的节点音效。 */
   function playNodeSfx(node: StoryNode): void {
-    if (node.sfx) playSfx(node.sfx as SfxName)
+    if (node.sfx) playSfx(node.sfx)
+  }
+
+  const presentationDefaults: Required<PresentationConfig> = {
+    shell: 'novel',
+    typography: 'literary',
+    density: 'balanced',
+    shape: 'soft',
+    choiceStyle: 'buttons',
+  }
+
+  /** 全局只定义一次，节点仅覆盖差异项；返回稳定 class 供 CSS 外壳组合。 */
+  function presentationClasses(node?: StoryNode): string {
+    const p = { ...presentationDefaults, ...(story.meta.presentation ?? {}), ...(node?.presentation ?? {}) }
+    return [
+      `shell-${p.shell}`,
+      `type-${p.typography}`,
+      `density-${p.density}`,
+      `shape-${p.shape}`,
+      `choice-${p.choiceStyle}`,
+    ].join(' ')
   }
 
   function renderTitle(): void {
@@ -152,7 +177,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const has = hasSave()
     const achCount = (story.achievements ?? []).length
     root.innerHTML = `
-      <main class="screen title-screen">
+      <main class="screen title-screen ${presentationClasses()}">
         <div class="title-badge">TEXT ADVENTURE</div>
         <h1 class="title-main">${esc(story.meta.title)}</h1>
         ${story.meta.subtitle ? `<p class="title-sub">${esc(story.meta.subtitle)}</p>` : ''}
@@ -195,7 +220,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const achievements = story.achievements ?? []
     const unlocked = load()?.achievements ?? []
     root.innerHTML = `
-      <main class="screen title-screen achievements-screen">
+      <main class="screen title-screen achievements-screen ${presentationClasses()}">
         <div class="title-badge">ACHIEVEMENTS</div>
         <h2 class="ach-heading">成就</h2>
         <p class="ach-count">已解锁 ${unlocked.length} / ${achievements.length}</p>
@@ -256,7 +281,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses(node)}" data-node-id="${esc(node.id)}">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
@@ -284,7 +309,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
             ${choices
               .map(
                 (c, i) =>
-                  `<button class="btn choice-btn" data-choice="${i}">${esc(game.interpolate(c.label))}</button>`,
+                  `<button class="btn choice-btn" data-choice="${i}" data-choice-label="${esc(c.label)}" data-choice-target="${esc(c.target)}">${esc(game.interpolate(c.label))}</button>`,
               )
               .join('')}
           </div>
@@ -321,10 +346,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   }
 
   function renderBlock(block: TextBlock): string {
-    const text = esc(game.interpolate(block.text))
+    const text = block.segments?.length
+      ? block.segments.map((segment) => renderSegment(segment)).join('')
+      : esc(game.interpolate(block.text))
     switch (block.type) {
       case 'title':
-        return `<h3 class="block-title">${esc(block.title ?? game.interpolate(block.text))}</h3>`
+        return `<h3 class="block-title">${block.segments?.length ? text : esc(block.title ?? game.interpolate(block.text))}</h3>`
       case 'rules':
         return `<div class="block block-rules"><div class="block-head">${esc(block.title ?? '规则')}</div><div class="block-body">${text}</div></div>`
       case 'note':
@@ -334,6 +361,39 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       default:
         return `<p class="block-para">${text}</p>`
     }
+  }
+
+  /**
+   * 只渲染 schema 允许的片段样式；条件未满足时，真实文本不会进入 DOM。
+   * 这让遮挡可用于谜题，同时避免任意 HTML/CSS 成为导出作品的注入入口。
+   */
+  function renderSegment(segment: TextSegment): string {
+    const revealed = game.meets(segment.revealWhen)
+    const style = segment.style
+    if (!revealed) {
+      const placeholder = concealedText(game.interpolate(segment.text), style)
+      const styleClass = style ? ` segment-${style}` : ''
+      return `<span class="text-segment segment-concealed${styleClass}" aria-label="内容尚未揭示"><span aria-hidden="true">${esc(placeholder)}</span></span>`
+    }
+
+    const wasConcealed = Boolean(segment.revealWhen && ['redacted', 'glitch', 'corrupt'].includes(style ?? ''))
+    const styleClass = wasConcealed ? ' segment-revealed' : (style ? ` segment-${style}` : '')
+    return `<span class="text-segment${styleClass}">${esc(game.interpolate(segment.text))}</span>`
+  }
+
+  function concealedText(text: string, style: TextSegment['style']): string {
+    if (!text) return '…'
+    const visible = Array.from(text).slice(0, 36)
+    if (style === 'redacted') return visible.map((char) => /\s/u.test(char) ? char : '█').join('')
+    if (style === 'glitch') {
+      const glyphs = ['▓', '▒', '░', '#', '?']
+      return visible.map((char, index) => /\s/u.test(char) ? char : glyphs[(char.codePointAt(0)! + index) % glyphs.length]).join('')
+    }
+    if (style === 'corrupt') {
+      const glyphs = ['�', '0', '1', '¤']
+      return visible.map((char, index) => /\s/u.test(char) ? char : glyphs[(char.codePointAt(0)! + index) % glyphs.length]).join('')
+    }
+    return '…'
   }
 
   /** 游戏画面右上角的线索入口（有线索时显示） */
@@ -397,7 +457,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const revealedHints = active?.hints?.slice(0, revealedCount) ?? []
     const isSolved = active ? game.state.solvedPuzzles.includes(active.id) : false
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses()}">
         <header class="game-header"><span class="game-title">谜题</span><span class="game-step">${puzzles.length} 项</span></header>
         ${active ? `<section class="card puzzle-card" data-puzzle="${esc(active.id)}">
           <h2 class="puzzle-title">${esc(active.title)}</h2>
@@ -436,7 +496,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     clearUnstable()
     const characters = Object.values(story.characters ?? {})
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses()}">
         <header class="game-header"><span class="game-title">人物</span><span class="game-step">${characters.length} 人</span></header>
         <div class="character-list">${characters.map((character) => {
           const stats = Object.entries(character.relations ?? {})
@@ -470,7 +530,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
     const deductions = Object.values(story.deductions ?? {})
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses()}">
         <header class="game-header"><span class="game-title">推理板</span><span class="game-step">${owned.length} 条证据</span></header>
         <section class="card deduction-board">
           <p class="deduction-guide">先选择一项待证明的推论，再勾选支持它的证据，最后点击“验证推论”。证据不足时可以返回场景继续调查。</p>
@@ -482,7 +542,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
             const alternativeGroups = deduction.requires.anyOf ?? []
             const requiredOwned = required.filter((id) => ownedSet.has(id)).length
             const groupsMet = alternativeGroups.filter((group) => group.some((id) => ownedSet.has(id))).length
-            return `<label class="deduction-item ${confirmed ? 'deduction-confirmed' : ''}" data-deduction="${esc(deduction.id)}">
+            const canConfirm = requiredOwned === required.length && groupsMet === alternativeGroups.length
+            return `<label class="deduction-item ${confirmed ? 'deduction-confirmed' : ''}" data-deduction="${esc(deduction.id)}" data-deduction-can-confirm="${canConfirm}">
               <input type="radio" name="deduction" value="${esc(deduction.id)}" ${index === 0 ? 'checked' : ''} ${confirmed ? 'disabled' : ''}/>
               <span><strong>${esc(deduction.statement)}${confirmed ? ' · 已成立' : ''}</strong>
                 <small data-deduction-progress="${esc(deduction.id)}">必需证据 ${requiredOwned}/${required.length}${alternativeGroups.length > 0 ? ` · 替代证据组 ${groupsMet}/${alternativeGroups.length}` : ''}</small>
@@ -520,7 +581,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       .map((id) => story.documents?.[id])
       .filter((d): d is NonNullable<typeof d> => Boolean(d))
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses()}">
         <header class="game-header">
           <span class="game-title">线索夹</span>
           <span class="game-step">${owned.length} 份</span>
@@ -552,7 +613,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const doc = story.documents?.[docId]
     if (!doc) return
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses()}">
         <header class="game-header">
           <span class="game-title">线索夹</span>
           <span class="game-step">${esc(docKindLabel(doc.kind))}</span>
@@ -581,7 +642,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playSfx(`ending_${ending.kind}` as SfxName)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen">
+      <main class="screen game-screen ${presentationClasses(node)}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
@@ -666,6 +727,13 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   /* ------------------------------ 启动 ------------------------------ */
 
   renderTitle()
+  return {
+    async destroy(): Promise<void> {
+      clearUnstable()
+      root.replaceChildren()
+      await disposeSfx()
+    },
+  }
 }
 
 function esc(text: string): string {

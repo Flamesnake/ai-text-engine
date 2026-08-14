@@ -23,6 +23,61 @@ afterEach(() => {
 })
 
 describe('mountTextAdventure 运行时集成', () => {
+  it('宿主可显式销毁实例并清空持续运行资源', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const { storage } = memoryStorage()
+    const mounted = mountTextAdventure(root, makeStory(), { saveKey: 'test:destroy', storage })
+    expect(root.childElementCount).toBeGreaterThan(0)
+
+    await mounted.destroy()
+    expect(root.childElementCount).toBe(0)
+  })
+
+  it('应用全局视觉外壳与设计令牌，并允许节点只覆盖差异项', () => {
+    const story = makeStory()
+    story.meta.presentation = {
+      shell: 'dossier',
+      typography: 'mono',
+      density: 'compact',
+      shape: 'sharp',
+      choiceStyle: 'commands',
+    }
+    story.nodes.armed.presentation = { shell: 'cinematic', density: 'spacious' }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    mountTextAdventure(root, story, { saveKey: 'test:presentation', storage })
+    const titleClasses = root.querySelector('.title-screen')!.classList
+    for (const cls of ['shell-dossier', 'type-mono', 'density-compact', 'shape-sharp', 'choice-commands']) {
+      expect(titleClasses.contains(cls)).toBe(true)
+    }
+
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.game-screen')!.classList.contains('shell-dossier')).toBe(true)
+    expect(root.querySelector('.game-screen')!.classList.contains('choice-commands')).toBe(true)
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    const nodeClasses = root.querySelector('.game-screen')!.classList
+    for (const cls of ['shell-cinematic', 'type-mono', 'density-spacious', 'shape-sharp', 'choice-commands']) {
+      expect(nodeClasses.contains(cls)).toBe(true)
+    }
+  })
+
+  it.each(['novel', 'dossier', 'chat', 'cinematic'] as const)(
+    '支持 %s 界面外壳',
+    (shell) => {
+      const story = makeStory()
+      story.meta.presentation = { shell }
+      const root = document.createElement('div')
+      document.body.appendChild(root)
+      const { storage } = memoryStorage()
+      mountTextAdventure(root, story, { saveKey: `test:shell:${shell}`, storage })
+      ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+      expect(root.querySelector('.game-screen')!.classList.contains(`shell-${shell}`)).toBe(true)
+    },
+  )
+
   it('完整游玩流程：标题屏 → 开始 → 拿剑 → 战斗 → 好结局，且存档写入', () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
@@ -244,6 +299,40 @@ describe('文本块与线索夹', () => {
     const rules = root.querySelector('.block-rules .block-body')?.textContent
     expect(rules).toContain('1. 兔子不会发出笑声')
     expect(root.querySelector('.block-note')).not.toBeNull()
+  })
+
+  it('受控富文本按条件隐藏并在获得证据后揭示', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    const story = makeStory()
+    story.evidence = {
+      e_time: { id: 'e_time', title: '停摆的钟', description: '停在凌晨三点。' },
+    }
+    story.nodes.start.blocks = [{
+      type: 'para',
+      text: '病历写着：凌晨三点。',
+      segments: [
+        { text: '病历写着：' },
+        { text: '凌晨三点', style: 'redacted', revealWhen: { op: 'eq', var: '#evidence', value: 'e_time' } },
+        { text: '。血迹未干。', style: 'blood' },
+        { text: ' SIGNAL LOST ', style: 'broadcast' },
+      ],
+    }]
+    story.nodes.start.choices.unshift({
+      label: '检查停摆的钟', target: 'start', effects: { gainEvidence: ['e_time'] },
+    })
+
+    mountTextAdventure(root, story, { saveKey: 'test:segments', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.segment-redacted')?.textContent).not.toContain('凌晨三点')
+    expect(root.querySelector('.segment-redacted')?.getAttribute('aria-label')).toBe('内容尚未揭示')
+    expect(root.querySelector('.segment-blood')?.textContent).toContain('血迹未干')
+    expect(root.querySelector('.segment-broadcast')?.textContent).toContain('SIGNAL LOST')
+
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(root.querySelector('.segment-revealed')?.textContent).toContain('凌晨三点')
+    expect(root.querySelector('.segment-redacted')).toBeNull()
   })
 
   it('获得线索后出现入口，可打开线索夹查看详情并返回', () => {

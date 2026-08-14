@@ -49,7 +49,7 @@ function compare(op: Condition['op'], left: VarValue | undefined, right: VarValu
 
 /**
  * 求值条件表达式。undefined / 空对象视为「通过」。
- * - `has` / `not_has`：道具包含检查（var 为道具名）；
+ * - `has` / `not_has`：普通 var 检查道具；集合型特殊变量检查 value 成员；
  * - `exists`：变量已定义检查；
  * - 其余：vars[var] 与 value 比较。
  */
@@ -69,10 +69,6 @@ export function evalCondition(cond: Condition | undefined, ctx: ConditionContext
   // 组合条件可以不带自身比较；仅当定义了 op 时才做自身判断
   if (!cond.op) return true
 
-  if (cond.op === 'has' || cond.op === 'not_has') {
-    const has = cond.var !== undefined && ctx.inventory.includes(cond.var)
-    return cond.op === 'has' ? has : !has
-  }
   if (cond.op === 'exists') {
     const exists =
       cond.var !== undefined &&
@@ -80,11 +76,15 @@ export function evalCondition(cond: Condition | undefined, ctx: ConditionContext
     return exists
   }
 
-  // 特殊变量：成就/条件使用的运行时状态（#steps / #ending / #visited）
+  // 特殊变量必须先于普通道具 has/not_has 求值，否则 #deduction 等会被误当成道具名。
   if (cond.var?.startsWith(SPECIAL_PREFIX)) {
     return evalSpecial(cond, ctx)
   }
 
+  if (cond.op === 'has' || cond.op === 'not_has') {
+    const has = cond.var !== undefined && ctx.inventory.includes(cond.var)
+    return cond.op === 'has' ? has : !has
+  }
   const left = cond.var !== undefined ? ctx.vars[cond.var] : undefined
   return compare(cond.op, left, cond.value)
 }
@@ -102,40 +102,46 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     case '#visited': {
       const visited =
         cond.value !== undefined && (ctx.visited ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? visited : cond.op === 'ne' ? !visited : false
+      return compareMembership(cond.op, visited)
     }
     case '#docs': {
       const has = cond.value !== undefined && (ctx.docs ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#day':
       return compare(cond.op, ctx.day ?? 1, cond.value)
     case '#violated': {
       const has =
         cond.value !== undefined && (ctx.violations ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#evidence': {
       const has = cond.value !== undefined && (ctx.evidence ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#deduction': {
       const has = cond.value !== undefined && (ctx.deductions ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#memory': {
       const has = cond.value !== undefined && (ctx.memories ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#secret': {
       const has = cond.value !== undefined && (ctx.revealedSecrets ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? has : cond.op === 'ne' ? !has : false
+      return compareMembership(cond.op, has)
     }
     case '#puzzle': {
       const solved = cond.value !== undefined && (ctx.solvedPuzzles ?? []).includes(String(cond.value))
-      return cond.op === 'eq' ? solved : cond.op === 'ne' ? !solved : false
+      return compareMembership(cond.op, solved)
     }
     default:
       return false
   }
+}
+
+function compareMembership(op: Condition['op'], included: boolean): boolean {
+  if (op === 'eq' || op === 'has') return included
+  if (op === 'ne' || op === 'not_has') return !included
+  return false
 }

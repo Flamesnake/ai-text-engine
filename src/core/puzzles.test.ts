@@ -119,5 +119,16 @@ describe('密码谜题', () => {
     const result = walkAllEndings(makePuzzleStory())
     expect(result.unreachableEndings).toEqual([])
     expect(result.endings.map((ending) => ending.endingId)).toEqual(['e_leave', 'e_truth'])
+    const witness = result.reachability.witnesses.find((item) => item.endingId === 'e_truth')!
+    expect(witness.actions).toContainEqual({ type: 'puzzle', nodeId: 'study', puzzleId: 'safe_code' })
+  })
+
+  it('has 形式的谜题条件在运行时和路径探索中都能解锁结局', () => {
+    const story = makePuzzleStory()
+    story.nodes.study.choices[0].when = { op: 'has', var: '#puzzle', value: 'safe_code' }
+    const game = new Game(story)
+    expect(game.attemptPuzzle('safe_code', '2210').solved).toBe(true)
+    expect(game.visibleChoices().map((choice) => choice.label)).toContain('取出秘密账本')
+    expect(walkAllEndings(story).unreachableEndings).toEqual([])
   })
 })

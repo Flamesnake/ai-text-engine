@@ -212,6 +212,86 @@ body {
 .card-actions { display: flex; flex-direction: column; gap: .7rem; margin-top: 1.7rem; }
 .choice-btn { text-align: left; letter-spacing: .05em; }
 
+/* 高层视觉表达：5 个短枚举可组合，避免逐节点重复 CSS。 */
+.type-literary { font-family: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif; }
+.type-modern { font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif; }
+.type-mono { font-family: 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace; }
+.type-rounded { font-family: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', sans-serif; }
+.type-rounded .title-main, .type-rounded .block-title { font-weight: 700; letter-spacing: .08em; }
+
+.density-compact .card { padding: 1.25rem; margin-top: .7rem; }
+.density-compact .card-text, .density-compact .block-para { line-height: 1.65; }
+.density-compact .card-actions { gap: .42rem; margin-top: 1rem; }
+.density-spacious .card { padding: 2.8rem 3rem 3.1rem; margin-top: 2rem; }
+.density-spacious .card-text, .density-spacious .block-para { line-height: 2.35; font-size: 1.1rem; }
+.density-spacious .card-actions { gap: 1rem; margin-top: 2.4rem; }
+
+.shape-sharp .card, .shape-sharp .btn, .shape-sharp .block,
+.shape-sharp .hud, .shape-sharp .inv-chip { border-radius: 0; }
+.shape-soft .card { border-radius: 8px; }
+.shape-soft .btn, .shape-soft .block, .shape-soft .hud { border-radius: 5px; }
+.shape-round .card { border-radius: 24px; }
+.shape-round .btn, .shape-round .block, .shape-round .hud { border-radius: 16px; }
+.shape-round .choice-btn { border-radius: 999px; }
+
+.choice-list .choice-btn {
+  border-width: 0 0 1px; padding-inline: .2rem; border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.choice-list .choice-btn::before { content: '— '; color: var(--accent); }
+.choice-dialogue .choice-btn {
+  width: 88%; border-radius: 18px 18px 4px 18px; align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 9%, var(--card));
+}
+.choice-dialogue .choice-btn::before { content: '你：'; color: var(--accent); }
+.choice-commands .choice-btn {
+  border-width: 0 0 0 2px; border-radius: 0;
+  font-family: 'Cascadia Mono', Consolas, monospace; letter-spacing: .02em;
+}
+.choice-commands .choice-btn::before { content: '> '; color: var(--accent); }
+
+/* novel：让文字本身成为界面，弱化通用卡片。 */
+.shell-novel.game-screen { max-width: 780px; }
+.shell-novel .card { background: transparent; border-color: transparent; box-shadow: none; }
+.shell-novel .game-header { border-bottom: 1px solid var(--border); padding-bottom: .75rem; }
+.shell-novel.title-screen .title-main { max-width: 12em; }
+
+/* dossier：宽版档案工作台，强调编号、边线和资料层级。 */
+.shell-dossier.game-screen { max-width: 1040px; }
+.shell-dossier .game-header {
+  border-block: 3px double var(--border); padding: .75rem .35rem;
+  text-transform: uppercase;
+}
+.shell-dossier .card {
+  border-radius: 0; border-left: 7px solid var(--accent); box-shadow: 10px 12px 0 color-mix(in srgb, var(--border) 65%, transparent);
+}
+.shell-dossier .block-head, .shell-dossier .ending-badge { text-transform: uppercase; }
+.shell-dossier.title-screen { align-items: flex-start; text-align: left; max-width: 1040px; margin: auto; }
+.shell-dossier.title-screen .title-actions { align-items: stretch; }
+
+/* chat：窄屏通讯界面，正文和玩家回应形成对话关系。 */
+.shell-chat.game-screen { max-width: 620px; }
+.shell-chat .game-header { border-radius: 18px 18px 0 0; background: var(--card); padding: 1rem; }
+.shell-chat .card { background: transparent; border: 0; box-shadow: none; padding-inline: .4rem; }
+.shell-chat .card-text, .shell-chat .block-para {
+  width: 88%; padding: 1rem 1.15rem; border-radius: 18px 18px 18px 4px;
+  background: var(--card); border: 1px solid var(--border);
+}
+.shell-chat .card-actions { align-items: flex-end; }
+.shell-chat.title-screen .title-main { font-size: clamp(2rem, 7vw, 3rem); }
+
+/* cinematic：全屏舞台，正文与行动压在画面底部。 */
+.shell-cinematic.game-screen { max-width: none; padding: clamp(1rem, 4vw, 4rem); justify-content: flex-end; }
+.shell-cinematic .game-header { position: absolute; inset: 1rem 1.5rem auto; }
+.shell-cinematic .card {
+  width: min(940px, 100%); margin: auto auto 0; border-width: 1px 0 0;
+  border-radius: 0; background: linear-gradient(180deg, transparent, var(--card) 18%);
+  box-shadow: none; padding-top: 3.5rem;
+}
+.shell-cinematic .card-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.shell-cinematic.title-screen { align-items: flex-start; justify-content: flex-end; text-align: left; padding: clamp(2rem, 7vw, 7rem); }
+.shell-cinematic.title-screen .title-main { font-size: clamp(3rem, 10vw, 7rem); }
+
 .card-ending { border-color: var(--border-glow); }
 .ending-badge {
   font-family: 'JetBrains Mono', Consolas, monospace;
@@ -256,6 +336,39 @@ body {
 .block-rules .block-body { color: var(--gold); font-family: 'JetBrains Mono', Consolas, monospace; font-size: .92rem; }
 .block-note .block-body { color: var(--text-dim); font-style: italic; }
 .block-letter .block-body { color: var(--text); }
+.text-segment { white-space: pre-wrap; }
+.segment-emphasis { color: var(--accent); font-weight: 700; }
+.segment-italic { font-style: italic; }
+.segment-blood {
+  color: #a90d22; font-weight: 650; letter-spacing: .035em;
+  text-shadow: 0 1px 0 #4d000b, 0 0 7px color-mix(in srgb, #d10d2c 42%, transparent);
+}
+.segment-whisper { color: var(--text-dim); font-size: .88em; font-style: italic; letter-spacing: .055em; }
+.segment-redacted {
+  color: color-mix(in srgb, var(--text) 22%, #000); letter-spacing: .08em;
+  text-shadow: 0 0 1px currentColor; user-select: none;
+}
+.segment-glitch, .segment-corrupt {
+  font-family: 'JetBrains Mono', Consolas, monospace; font-weight: 700;
+  color: var(--accent); text-shadow: -.06em 0 #ef3159, .06em 0 #36dbe8;
+}
+.segment-terminal {
+  font-family: 'JetBrains Mono', Consolas, monospace; color: #62f59a;
+  background: color-mix(in srgb, #071b0f 84%, transparent); padding: .08em .3em;
+}
+.segment-handwritten { font-family: 'KaiTi', 'STKaiti', cursive; font-size: 1.08em; letter-spacing: .06em; }
+.segment-broadcast {
+  display: inline; padding: .08em .34em; color: #fff; font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: .9em; font-weight: 700; letter-spacing: .08em;
+  background: linear-gradient(90deg, #d22 0 16%, #ca2 16% 32%, #2a5 32% 48%, #268 48% 64%, #52a 64% 80%, #111 80%);
+  text-shadow: 0 1px 2px #000;
+}
+.segment-concealed { cursor: help; }
+.segment-revealed { animation: segment-reveal .42s ease-out both; }
+@keyframes segment-reveal {
+  from { opacity: .15; filter: blur(.16em); }
+  to { opacity: 1; filter: none; }
+}
 
 /* 线索夹 */
 .docs-btn {
@@ -378,7 +491,7 @@ body {
   50% { transform: scale(var(--fx-pulse-scale, 1.02)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst { animation: none; }
+  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst, .segment-revealed { animation: none; }
 }
 
 /* 成就 */
@@ -430,5 +543,12 @@ body {
   .card { padding: 1.5rem 1.15rem 1.7rem; }
   .ending-actions { flex-direction: column; }
   .title-main { letter-spacing: .12em; }
+  .shell-dossier.title-screen { padding-inline: 1.2rem; }
+  .shell-dossier .card { box-shadow: 5px 6px 0 color-mix(in srgb, var(--border) 65%, transparent); }
+  .shell-cinematic.game-screen { padding: 1rem; }
+  .shell-cinematic .game-header { position: static; }
+  .shell-cinematic .card-actions { grid-template-columns: 1fr; }
+  .density-spacious .card { padding: 1.8rem 1.25rem 2rem; }
+  .choice-dialogue .choice-btn, .shell-chat .card-text, .shell-chat .block-para { width: 94%; }
 }
 `

@@ -136,6 +136,7 @@ describe('effects / conditions 直接单测', () => {
     expect(evalCondition({ op: 'ne', var: 'name', value: '小明' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'exists', var: 'hp' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'exists', var: 'luck' }, ctx)).toBe(false)
+    expect(evalCondition({ op: 'exists', var: '#steps' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'has', var: '手电' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'not_has', var: '钥匙' }, ctx)).toBe(true)
     expect(
@@ -146,5 +147,35 @@ describe('effects / conditions 直接单测', () => {
     ).toBe(true)
     expect(evalCondition({ not: { op: 'gt', var: 'hp', value: 10 } }, ctx)).toBe(true)
     expect(evalCondition(undefined, ctx)).toBe(true)
+  })
+
+  it('集合型特殊变量同时支持 eq/ne 与 has/not_has', () => {
+    const ctx = {
+      vars: {},
+      inventory: [],
+      visited: ['study'],
+      docs: ['letter'],
+      violations: ['rule_1'],
+      evidence: ['fiber'],
+      deductions: ['false_alibi'],
+      memories: ['kept_promise'],
+      revealedSecrets: ['witness:past'],
+      solvedPuzzles: ['safe_code'],
+    }
+    for (const [variable, value] of [
+      ['#visited', 'study'],
+      ['#docs', 'letter'],
+      ['#violated', 'rule_1'],
+      ['#evidence', 'fiber'],
+      ['#deduction', 'false_alibi'],
+      ['#memory', 'kept_promise'],
+      ['#secret', 'witness:past'],
+      ['#puzzle', 'safe_code'],
+    ] as const) {
+      expect(evalCondition({ op: 'has', var: variable, value }, ctx)).toBe(true)
+      expect(evalCondition({ op: 'not_has', var: variable, value }, ctx)).toBe(false)
+      expect(evalCondition({ op: 'has', var: variable, value: 'missing' }, ctx)).toBe(false)
+      expect(evalCondition({ op: 'not_has', var: variable, value: 'missing' }, ctx)).toBe(true)
+    }
   })
 })

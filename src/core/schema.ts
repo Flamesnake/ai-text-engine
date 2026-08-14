@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SFX_NAMES } from './types.js'
 import type {
   Achievement,
   Choice,
@@ -8,6 +9,7 @@ import type {
   Deduction,
   Character,
   Puzzle,
+  PresentationConfig,
   EndingMeta,
   FxItem,
   GameState,
@@ -16,6 +18,7 @@ import type {
   StoryDocument,
   StoryMeta,
   StoryNode,
+  TextSegment,
   TextBlock,
   ThemeConfig,
   VarValue,
@@ -32,8 +35,8 @@ import type {
  * - meta.version 版本迁移（migrateStory）；
  * - TypeScript 类型与 zod 结构在编译期对齐（各 Schema 显式标注 z.ZodType<T>）。
  *
- * 所有 schema 保持「宽容」：未知字段被剥离、可选字段缺省，
- * 保证历史数据与 AI 生成数据都能被接受。
+ * 持久化读取 schema 保持「宽容」：未知字段被剥离、可选字段缺省，
+ * 保证历史数据可继续读取；MCP 写入边界可使用对应 strict schema 拒绝新数据中的未知字段。
  */
 
 /* ------------------------------ 基础 ------------------------------ */
@@ -55,6 +58,14 @@ export const ThemeConfigSchema: z.ZodType<ThemeConfig> = z.object({
   green: z.string(),
   purple: z.string(),
 })
+
+export const PresentationConfigSchema: z.ZodType<PresentationConfig> = z.object({
+  shell: z.enum(['novel', 'dossier', 'chat', 'cinematic']).optional(),
+  typography: z.enum(['literary', 'modern', 'mono', 'rounded']).optional(),
+  density: z.enum(['compact', 'balanced', 'spacious']).optional(),
+  shape: z.enum(['sharp', 'soft', 'round']).optional(),
+  choiceStyle: z.enum(['buttons', 'list', 'dialogue', 'commands']).optional(),
+}).strict()
 
 export const HudStatSchema: z.ZodType<HudStat> = z.object({
   var: z.string(),
@@ -97,10 +108,21 @@ export const EffectsSchema: z.ZodType<Effects> = z.object({
 /* ------------------------------ 文本块 / 文档 ------------------------------ */
 
 const TEXT_BLOCK_TYPES = ['para', 'title', 'rules', 'note', 'letter'] as const
+const TEXT_SEGMENT_STYLES = [
+  'emphasis', 'italic', 'blood', 'whisper', 'redacted',
+  'glitch', 'corrupt', 'terminal', 'handwritten', 'broadcast',
+] as const
+
+export const TextSegmentSchema: z.ZodType<TextSegment> = z.object({
+  text: z.string(),
+  style: z.enum(TEXT_SEGMENT_STYLES).optional(),
+  revealWhen: ConditionSchema.optional(),
+}).strict()
 
 export const TextBlockSchema: z.ZodType<TextBlock> = z.object({
   type: z.enum(TEXT_BLOCK_TYPES).optional(),
   text: z.string(),
+  segments: z.array(TextSegmentSchema).optional(),
   title: z.string().optional(),
 })
 
@@ -162,8 +184,8 @@ const FX_NAMES = ['shake', 'flicker', 'glitch', 'pulse', 'unstable'] as const
 
 export const FxSpecSchema = z.object({
   name: z.enum(FX_NAMES),
-  intensity: z.number().optional(),
-  speed: z.number().optional(),
+  intensity: z.number().min(0.1).max(2).optional(),
+  speed: z.number().min(0.25).max(4).optional(),
 })
 
 export const FxItemSchema: z.ZodType<FxItem> = z.union([z.enum(FX_NAMES), FxSpecSchema])
@@ -181,20 +203,24 @@ export const EndingMetaSchema: z.ZodType<EndingMeta> = z.object({
   kind: z.enum(['good', 'bad', 'true', 'hidden']),
 })
 
-export const StoryNodeSchema: z.ZodType<StoryNode> = z.object({
+export const StoryNodeSchema = z.object({
   id: z.string(),
   objective: z.string().optional(),
   text: z.string(),
   blocks: z.array(TextBlockSchema).optional(),
-  sfx: z.string().optional(),
+  sfx: z.enum(SFX_NAMES).optional(),
   fx: z.array(FxItemSchema).optional(),
+  presentation: PresentationConfigSchema.optional(),
   choices: z.array(ChoiceSchema),
   puzzles: z.array(z.string()).optional(),
   ending: EndingMetaSchema.optional(),
   onEnter: EffectsSchema.optional(),
   tags: z.array(z.string()).optional(),
   note: z.string().optional(),
-})
+}) satisfies z.ZodType<StoryNode>
+
+/** MCP 写入专用：拒绝未知字段，避免拼错或把 effects 放到节点顶层后静默失效。 */
+export const StrictStoryNodeSchema: z.ZodType<StoryNode> = StoryNodeSchema.strict()
 
 export const AchievementSchema: z.ZodType<Achievement> = z.object({
   id: z.string(),
@@ -213,6 +239,7 @@ export const StoryMetaSchema: z.ZodType<StoryMeta> = z.object({
   version: z.string().optional(),
   author: z.string().optional(),
   theme: z.union([z.string(), ThemeConfigSchema]).optional(),
+  presentation: PresentationConfigSchema.optional(),
   hud: z.array(HudStatSchema).optional(),
 })
 
@@ -255,7 +282,7 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
 /* ------------------------------ 解析 / 迁移 ------------------------------ */
 
 /** 当前 Schema 版本（写入 Story.meta.version） */
-export const SCHEMA_VERSION = '0.4.0'
+export const SCHEMA_VERSION = '0.5.0'
 
 /** schema 校验失败时的可读错误 */
 export class StorySchemaError extends Error {

@@ -1,4 +1,4 @@
-import type { Achievement, Choice, EndingMeta, GameState, Story, StoryNode } from './types.js'
+import type { Achievement, Choice, Condition, EndingMeta, GameState, Story, StoryNode } from './types.js'
 import { applyEffects } from './effects.js'
 import { evalCondition, type ConditionContext } from './conditions.js'
 
@@ -97,6 +97,11 @@ export class Game {
   /** 应用条件过滤后当前可见的选项（when 支持与成就相同的全部特殊变量） */
   visibleChoices(): Choice[] {
     return this.currentNode.choices.filter((c) => evalCondition(c.when, this.conditionContext()))
+  }
+
+  /** 对当前完整游戏状态求值；受控表现层复用同一条件真相源。 */
+  meets(condition: Condition | undefined): boolean {
+    return evalCondition(condition, this.conditionContext())
   }
 
   /* ------------------------------ 动作 ------------------------------ */

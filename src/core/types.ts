@@ -13,6 +13,13 @@ export type VarValue = number | string | boolean
 /** 运行时变量表 */
 export type Vars = Record<string, VarValue>
 
+/** 运行时内置的短促音效；Schema 与合成器共享同一枚举。 */
+export const SFX_NAMES = [
+  'click', 'page', 'heartbeat', 'drone', 'achievement',
+  'ending_good', 'ending_bad', 'ending_true', 'ending_hidden', 'shock',
+] as const
+export type SfxName = typeof SFX_NAMES[number]
+
 /** 结局分类 */
 export type EndingKind = 'good' | 'bad' | 'true' | 'hidden'
 
@@ -34,7 +41,7 @@ export type CondOp =
  * 条件表达式（选项的 when / 未来节点的门槛）。
  * 支持组合：and / or / not。
  * 规则：
- * - `has` / `not_has`：var 视为道具名，检查 inventory 是否包含；
+ * - `has` / `not_has`：普通 var 视为道具名；集合型特殊变量用 value 检查成员；
  * - `exists`：检查变量是否已定义；
  * - 其余比较符：vars[var] 与 value 比较（数字按数值、字符串按 ===、布尔按 ===）。
  */
@@ -155,10 +162,33 @@ export interface Puzzle {
 /** 节点正文块类型（blocks 存在时优先于 text 渲染） */
 export type TextBlockType = 'para' | 'title' | 'rules' | 'note' | 'letter'
 
+export type TextSegmentStyle =
+  | 'emphasis'
+  | 'italic'
+  | 'blood'
+  | 'whisper'
+  | 'redacted'
+  | 'glitch'
+  | 'corrupt'
+  | 'terminal'
+  | 'handwritten'
+  | 'broadcast'
+
+/** 受控行内文字片段；不允许注入 HTML/CSS。 */
+export interface TextSegment {
+  /** 永远保存真实原文；遮挡和乱码只影响渲染。 */
+  text: string
+  style?: TextSegmentStyle
+  /** 条件未满足时显示安全占位，满足后恢复真实文字。 */
+  revealWhen?: Condition
+}
+
 export interface TextBlock {
   /** 块类型：para 段落 / title 标题 / rules 规则清单 / note 便条 / letter 信件 */
   type?: TextBlockType
   text: string
+  /** 可选行内片段；存在时用于视觉渲染，text 保留纯文本回退。 */
+  segments?: TextSegment[]
   /** 标题（title 类型必填，rules/letter 可带） */
   title?: string
 }
@@ -210,6 +240,18 @@ export interface ThemeConfig {
   purple: string
 }
 
+/** 高层视觉表达配置：少量可组合枚举替代重复 CSS，兼顾创作自由与 token 效率。 */
+export interface PresentationConfig {
+  /** 页面媒介/构图外壳。 */
+  shell?: 'novel' | 'dossier' | 'chat' | 'cinematic'
+  /** 字体性格；使用本地字体栈，保持单文件离线可用。 */
+  typography?: 'literary' | 'modern' | 'mono' | 'rounded'
+  density?: 'compact' | 'balanced' | 'spacious'
+  shape?: 'sharp' | 'soft' | 'round'
+  /** 选项的视觉隐喻。 */
+  choiceStyle?: 'buttons' | 'list' | 'dialogue' | 'commands'
+}
+
 /** HUD 统计条（好感度/理智值等数值变量的可视化） */
 export interface HudStat {
   /** 变量名（vars 中的数值键） */
@@ -249,13 +291,15 @@ export interface StoryNode {
   text: string
   /** 分类型文本块（可选）：para/rules/note/letter/title 混合排版 */
   blocks?: TextBlock[]
-  /** 进入本节点时播放的音效名：click/page/heartbeat/drone/achievement/shock/ending_* */
-  sfx?: string
+  /** 进入本节点时播放的内置音效。 */
+  sfx?: SfxName
   /**
    * 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse，
    * 或带参数的规格 { name, intensity?, speed? }：intensity 幅度倍率（0.3=轻微，2=剧烈），speed 频率倍率（2=快一倍，0.5=慢一倍），默认 1。
    */
   fx?: FxItem[]
+  /** 仅覆盖本场景与全局 presentation 不同的项；不要在每个节点重复全局配置。 */
+  presentation?: PresentationConfig
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
   /** 可在本场景直接交互的谜题 id。未被任何节点绑定的旧谜题仍按全局谜题处理。 */
@@ -273,9 +317,9 @@ export interface StoryNode {
 /** 节点动画效果规格（fx 数组元素：效果名或带参数的规格） */
 export interface FxSpec {
   name: 'shake' | 'flicker' | 'glitch' | 'pulse' | 'unstable'
-  /** 幅度倍率（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
+  /** 幅度倍率 0.1..2（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
   intensity?: number
-  /** 频率倍率（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
+  /** 频率倍率 0.25..4（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
   speed?: number
 }
 
@@ -288,6 +332,8 @@ export interface StoryMeta {
   author?: string
   /** 主题：内置主题名（'dark' | 'cyber' | 'cozy' | 'paper'）或自定义 ThemeConfig */
   theme?: string | ThemeConfig
+  /** 全局视觉表达；未提供的维度使用可靠默认值。 */
+  presentation?: PresentationConfig
   /** HUD 统计条（好感度等数值变量） */
   hud?: HudStat[]
 }

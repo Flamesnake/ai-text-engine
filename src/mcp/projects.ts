@@ -179,7 +179,10 @@ export async function loadStory(title: string): Promise<Story> {
  * 若本进程读取过该项目，且磁盘内容已与读取时不一致，抛 CONFLICT 拒绝覆盖。
  */
 export async function saveStory(story: Story): Promise<string> {
-  const title = story.meta.title
+  // 所有调用方共享的最后一道落盘防线：先完整解析，再写入规整后的数据。
+  // 读取仍使用宽容 schema 兼容旧项目；MCP 各写入边界负责 strict 拒绝未知字段。
+  const validatedStory = parseStory(structuredClone(story))
+  const title = validatedStory.meta.title
   if (!title?.trim()) throw new ProjectError('TITLE_INVALID', 'meta.title 不能为空')
   const key = cacheKey(title)
   const expected = loadedCache.get(key)
@@ -206,7 +209,7 @@ export async function saveStory(story: Story): Promise<string> {
   // 目录定位：已有项目用原目录；新项目在 base 被占用（碰撞/损坏）时自动加序号
   const dir = existing ? existing.dir : await freshDirFor(title)
   await mkdir(dir, { recursive: true })
-  const data = JSON.stringify(story, null, 2)
+  const data = JSON.stringify(validatedStory, null, 2)
   await atomicWrite(path.join(dir, 'story.json'), data)
   loadedCache.set(key, data)
   return dir

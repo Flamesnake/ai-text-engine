@@ -1,8 +1,10 @@
 import type {
-  Achievement, Character, Deduction, Evidence, HudStat, Puzzle, StoryDocument, StoryNode, ThemeConfig,
+  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
 import { validate, validateExperience } from '../core/validate.js'
-import { walkAllEndings } from '../core/walk.js'
+import { evaluateStory } from '../core/evaluate.js'
+import { StrictStoryNodeSchema } from '../core/schema.js'
+import { walkAllEndings, type WalkOptions } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
 import * as projects from './projects.js'
@@ -61,8 +63,9 @@ export interface UpsertNodeArgs {
 
 export async function upsertNode(args: UpsertNodeArgs): Promise<unknown> {
   const story = await projects.loadStory(args.title)
-  const node = args.node
-  if (!node?.id) throw new Error('node.id 不能为空')
+  // handler 也是脚本/测试可直接调用的公共边界，不能只依赖 MCP transport 校验。
+  // strict 解析会在落盘前拒绝缺字段和未知字段，避免本次写入成功、下次读取 CORRUPT。
+  const node = StrictStoryNodeSchema.parse(args.node)
   const isNew = !story.nodes[node.id]
   // 若节点曾带 ending 而新版本不带，且无其他节点使用该结局，则从结局表清理
   const prev = story.nodes[node.id]
@@ -156,8 +159,8 @@ export async function deleteEnding(args: { title: string; endingId: string }): P
 export async function validateStory(title: string): Promise<unknown> {
   const story = await projects.loadStory(title)
   const problems = validate(story)
-  const experienceWarnings = validateExperience(story)
   const walk = walkAllEndings(story)
+  const experienceWarnings = validateExperience(story)
   return {
     ok: true,
     title,
@@ -233,14 +236,50 @@ export async function setMeta(args: {
   author?: string
   theme?: string | ThemeConfig
   hud?: HudStat[]
+  presentation?: PresentationConfig
 }): Promise<unknown> {
   const story = await projects.loadStory(args.title)
   if (args.subtitle !== undefined) story.meta.subtitle = args.subtitle
   if (args.author !== undefined) story.meta.author = args.author
   if (args.theme !== undefined) story.meta.theme = args.theme
   if (args.hud !== undefined) story.meta.hud = args.hud
+  if (args.presentation !== undefined) story.meta.presentation = args.presentation
   await projects.saveStory(story)
   return { ok: true, meta: story.meta }
+}
+
+export async function evaluateProject(title: string): Promise<unknown> {
+  const story = await projects.loadStory(title)
+  return { ok: true, title, evaluation: evaluateStory(story) }
+}
+
+export interface WalkStoryArgs extends Omit<WalkOptions, 'rand' | 'targetEndingId'> {
+  title: string
+}
+
+/** 独立路径诊断：允许调整探索预算，并默认返回热点节点以减少盲目改稿。 */
+export async function walkStory(args: WalkStoryArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const { title, ...options } = args
+  const walk = walkAllEndings(story, {
+    ...options,
+    diagnostics: options.diagnostics ?? true,
+  })
+  return {
+    ok: true,
+    title,
+    nodeCount: Object.keys(story.nodes).length,
+    endingCount: Object.keys(story.endings).length,
+    walk,
+  }
+}
+
+/** 单独的紧凑视觉配置工具，避免为改外观重复发送其他 meta 字段。 */
+export async function setPresentation(args: {
+  title: string
+  presentation: PresentationConfig
+}): Promise<unknown> {
+  return setMeta({ title: args.title, presentation: args.presentation })
 }
 
 export interface UpsertAchievementArgs {
@@ -472,10 +511,12 @@ export const tools = {
   story_upsert_puzzle: (args: { title: string; puzzle: Puzzle }) => upsertPuzzle(args),
   story_delete_puzzle: (args: { title: string; puzzleId: string }) => deletePuzzle(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
-  story_walk: (args: { title: string }) => validateStory(args.title),
+  story_evaluate: (args: { title: string }) => evaluateProject(args.title),
+  story_walk: (args: WalkStoryArgs) => walkStory(args),
   story_graph: (args: { title: string }) => graph(args.title),
   story_export: (args: ExportArgs) => exportStory(args),
   story_set_meta: (args: { title: string; subtitle?: string; author?: string }) => setMeta(args),
+  story_set_presentation: (args: { title: string; presentation: PresentationConfig }) => setPresentation(args),
   story_list: () => listProjects(),
   story_delete_project: (args: { title: string }) => deleteProject(args.title),
 }

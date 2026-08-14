@@ -62,6 +62,14 @@ describe('项目存储深模块', () => {
     await expect(projects.loadStory('类型错')).rejects.toMatchObject({ code: 'CORRUPT' })
   })
 
+  it('saveStory 在落盘前拒绝不符合 schema 的数据', async () => {
+    const invalid = projects.createSkeletonStory({ title: '拒绝坏写入' })
+    delete (invalid.nodes.start as unknown as { text?: string }).text
+
+    await expect(projects.saveStory(invalid)).rejects.toThrow(/text/)
+    await expect(projects.loadStory('拒绝坏写入')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
   it('并发冲突：读取后被外部修改，保存时拒绝覆盖', async () => {
     await projects.saveStory(projects.createSkeletonStory({ title: '冲突测试' }))
     const story = await projects.loadStory('冲突测试')

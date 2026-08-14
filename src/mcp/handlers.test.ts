@@ -71,6 +71,83 @@ describe('story_upsert_node / delete_node', () => {
     expect(res2.validatePass).toBe(true)
   })
 
+  it('写入前拒绝缺少 text 的节点，且不会损坏已有项目', async () => {
+    await createTestProject()
+    const invalidNode = {
+      id: 'blocks-only',
+      blocks: [{ type: 'para', text: '只有文本块' }],
+      choices: [{ label: '返回', target: 'start' }],
+    }
+
+    await expect(
+      handlers.upsertNode({ title: '测试游戏', node: invalidNode as unknown as StoryNode }),
+    ).rejects.toThrow(/text/)
+
+    await expect(handlers.getStory('测试游戏')).resolves.toMatchObject({
+      story: { nodes: { start: { id: 'start' } } },
+    })
+  })
+
+  it('拒绝节点顶层未知字段，不再静默丢弃 effects', async () => {
+    await createTestProject()
+    const invalidNode = {
+      id: 'silent-effects',
+      text: '错误效果位置',
+      choices: [{ label: '返回', target: 'start' }],
+      effects: { set: { trust: 10 } },
+    }
+
+    await expect(
+      handlers.upsertNode({ title: '测试游戏', node: invalidNode as unknown as StoryNode }),
+    ).rejects.toThrow(/effects|未知字段/)
+
+    const result = await handlers.getStory('测试游戏') as { story: { nodes: Record<string, StoryNode> } }
+    expect(result.story.nodes['silent-effects']).toBeUndefined()
+  })
+
+  it('写入前拒绝未知音效和越界动画参数', async () => {
+    await createTestProject()
+    const base = {
+      id: 'unsafe-presentation', text: '不安全演出',
+      choices: [{ label: '返回', target: 'start' }],
+    }
+
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: { ...base, sfx: 'explosion' } as unknown as StoryNode,
+    })).rejects.toThrow(/sfx|explosion/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, fx: [{ name: 'shake', intensity: 2.1 }],
+      } as StoryNode,
+    })).rejects.toThrow(/intensity/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, fx: [{ name: 'flicker', speed: 4.1 }],
+      } as StoryNode,
+    })).rejects.toThrow(/speed/)
+  })
+
+  it('写入前拒绝未知富文本样式与任意 HTML 字段', async () => {
+    await createTestProject()
+    const base = {
+      id: 'unsafe-segment', text: '不安全富文本',
+      choices: [{ label: '返回', target: 'start' }],
+    }
+
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base,
+        blocks: [{ type: 'para', text: '回退', segments: [{ text: '彩虹', style: 'rainbow' }] }],
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/style|rainbow/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base,
+        blocks: [{ type: 'para', text: '回退', segments: [{ text: '危险', html: '<script />' }] }],
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/html|未知字段/)
+  })
+
   it('删除被引用的节点会报错并列出引用处', async () => {
     await createTestProject()
     // start 引用了 end
@@ -116,6 +193,37 @@ describe('story_validate / story_walk', () => {
     }
     expect(res.validatePass).toBe(true)
     expect(res.walk.endings.map((e) => e.endingId)).toEqual(['e_end'])
+  })
+
+  it('story_walk 接受预算参数并返回热点诊断', async () => {
+    await createTestProject()
+    const res = (await handlers.walkStory({
+      title: '测试游戏',
+      maxStates: 1,
+      witnessMaxStates: 10,
+      diagnostics: true,
+      topNodes: 1,
+    })) as {
+      walk: {
+        truncated: boolean
+        budget: { used: number; limit: number; utilization: number }
+        hotNodes?: { nodeId: string; visits: number }[]
+        coverage: { complete: boolean; reasons: string[] }
+        reachability: {
+          allEndingsProven: boolean
+          witnesses: Array<{ endingId: string; source: string; actions: unknown[] }>
+          witnessSearch: { limitPerEnding: number }
+        }
+      }
+    }
+
+    expect(res.walk.truncated).toBe(true)
+    expect(res.walk.budget.limit).toBe(1)
+    expect(res.walk.hotNodes).toHaveLength(1)
+    expect(res.walk.coverage).toEqual({ complete: false, reasons: ['state_budget'] })
+    expect(res.walk.reachability.allEndingsProven).toBe(true)
+    expect(res.walk.reachability.witnesses[0]).toMatchObject({ endingId: 'e_end', source: 'targeted' })
+    expect(res.walk.reachability.witnessSearch.limitPerEnding).toBe(10)
   })
 
   it('断链剧情校验失败并给出问题列表', async () => {
@@ -177,6 +285,22 @@ describe('story_list / set_meta / delete_project', () => {
     expect(story.meta.subtitle).toBe('新副标题')
   })
 
+  it('用一次短配置更新作品视觉表达', async () => {
+    await createTestProject()
+    await handlers.setPresentation({
+      title: '测试游戏',
+      presentation: {
+        shell: 'chat', typography: 'rounded', density: 'compact',
+        shape: 'round', choiceStyle: 'dialogue',
+      },
+    })
+    const story = await projects.loadStory('测试游戏')
+    expect(story.meta.presentation).toEqual({
+      shell: 'chat', typography: 'rounded', density: 'compact',
+      shape: 'round', choiceStyle: 'dialogue',
+    })
+  })
+
   it('删除项目后列表为空', async () => {
     await createTestProject()
     await handlers.deleteProject('测试游戏')
@@ -230,6 +354,20 @@ describe('story_upsert_document / delete_document', () => {
     expect(res.deleted).toBe(true)
     expect(res.validatePass).toBe(false)
     expect(res.validate.join('\n')).toContain('不存在的文档 "d_x"')
+  })
+})
+
+describe('story_evaluate', () => {
+  it('通过 MCP handler 返回结构化评估且不打总分', async () => {
+    await createTestProject()
+    const res = (await handlers.evaluateProject('测试游戏')) as {
+      ok: boolean
+      evaluation: { summary: { nodes: number }; findings: unknown[]; score?: number }
+    }
+    expect(res.ok).toBe(true)
+    expect(res.evaluation.summary.nodes).toBe(2)
+    expect(Array.isArray(res.evaluation.findings)).toBe(true)
+    expect(res.evaluation.score).toBeUndefined()
   })
 })
 

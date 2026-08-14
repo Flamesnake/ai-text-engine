@@ -7,10 +7,16 @@
 
 ### 修复
 
+- **声画输入与生命周期**：节点 `sfx` 改为共享严格枚举并补齐 `ending_hidden`；`fx.intensity`/`speed` 增加安全边界。音频使用主增益实现即时静音，支持挂起恢复与显式销毁，不再依赖未知音效运行时静默失败。
+- **受控富文本与条件揭示**：文本块新增严格 `segments`，支持 emphasis/italic/blood/whisper/redacted/glitch/corrupt/terminal/handwritten/broadcast；揭示条件参与引用校验，未满足时真实文本不进入 DOM，保留纯文本回退且不开放任意 HTML/CSS。
+- **统一发布自检**：新增 `npm run check:release`，复用构建、完整测试、真实 MCP 握手和项目语料校验；为后续薄插件封装提供稳定健康检查契约，避免 Agent 重复排查与重复 typecheck。
+- **集合型特殊条件语义**：`#visited`、`#docs`、`#evidence`、`#deduction`、`#violated`、`#memory`、`#secret`、`#puzzle` 现在同时支持 `eq/ne` 与 `has/not_has`；修复 `has` 被提前当作普通道具检查、导致运行时和 walk 错判不可达的问题，并增加推论与谜题回归测试；
 - **推理结局可发现性**：玩家获得证据后，在场景主要行动区显示“整理线索并推理”入口；
   线索板补充选择推论、勾选证据、验证推论的操作说明，避免关键结局只由顶部工具按钮隐式解锁。
 - **路径探索状态剪枝**：调查中心存在多条可反复往返支线时，按“节点 + 完整模拟状态”合并等价路径，
   避免调查顺序、谜题和推论组合造成阶乘级膨胀；路径数明确作为状态路径的近似统计。
+- **无关访问历史剪枝**：walker 的状态键只保留被剧情 `#visited` 条件实际引用的节点；
+  运行时与条件求值仍保留完整访问历史，但纯参观顺序不再制造指数级子集状态。
 
 - **选项条件上下文**：`visibleChoices()` 此前只向 `when` 条件传入 `vars/inventory`，
   导致 `#day`、`#docs`、`#violated`、`#steps`、`#ending`、`#visited` 在选项中全部失效；
@@ -25,6 +31,27 @@
   统一抛带 `code` 的 `ProjectError`（`CORRUPT` / `NOT_FOUND` / `WRITE_FAILED` / `CONFLICT` / `TITLE_INVALID`）。
 
 ### 新增
+
+- **结局见证与覆盖拆分**：walk 现在分别返回 `reachability` 与 `coverage`；主探索超出预算时，会为尚未证明的结局追加目标导向搜索并输出可重放的选择、推论和谜题动作。Agent 不再需要仅为满足全覆盖预算而把合理的自由调查线性化；覆盖不完整仍会诚实报告死路风险。
+- **DOM 见证重放器**：新增 `replayWitnessInDom` 与 `verify-dom-witnesses.mjs`，自动操作真实运行时的开始、选项、推理板、谜题输入、提交、返回和重渲染；失败摘要只包含动作位置、节点和可见选项，减少每部作品重复编写验收路线及无用正文回传。
+- **失败路径见证**：walk 现在记录 `soft_lock` 与 `invalid_terminal` 的最短可重放路径，并区分失败搜索是否完整；仍可确认推论或解谜时不会误报软锁。`story_evaluate` 会把实际找到的失败路径列为明确候选问题，DOM 验收器会复现并以非零状态退出。
+- **选择质量与机制回收**：`story_evaluate` 新增无状态原地循环、同节点重复结果、未回收证据、未回收推论和未回收谜题指标；结果按高置信结构事实输出为 `info` 候选，并限制证据列表长度，避免机械改稿和冗长 token 回传。
+- **声画体验诊断**：`story_evaluate` 新增连续 `drone`、重复系统音效、长正文持续强动画和高强度动画候选，帮助 Agent 集中调整少量叙事峰值而非逐节点铺效果。
+- **作品评估工具**：新增 `story_evaluate`，用中立、机器可读的指标报告有效选择、
+  单选走廊、重复导航、机制使用、声画覆盖与 walk 健康度；不打总分，未采用的可选机制不被机械告警。
+- **本地 MCP 成本观测**：新增 `story_observability` 与 `story_observability_reset`，
+  聚合记录工具调用、失败、JSON 字节、粗略 token、耗时、全量读取和重复资源覆盖；
+  不保存剧情正文，并为同题 Agent 盲测提供可比较摘要。
+- **walk 自诊断**：`story_walk` 现支持 `maxStates`、`maxDepth`、`maxNodeVisits`、
+  `maxDeductionVariants`、`diagnostics` 与 `topNodes`；结果返回预算占用和高频热点节点，
+  在使用率达到 80% 时主动警告，减少反复读取全量剧情和手工插桩的 token/时间浪费。
+- **Skill 渐进披露**：将推理公平性、walk 调优和 happy-dom 运行时验收拆到按需 reference，
+  主 Skill 只保留路由、通用契约和验收红线，避免每次创作都加载全部专项说明。
+- **可组合视觉表达系统**：新增 `PresentationConfig` 与 `story_set_presentation`，用
+  `shell / typography / density / shape / choiceStyle` 五个短枚举组合界面风格；提供
+  `novel / dossier / chat / cinematic` 四种真正改变构图的外壳，节点可仅覆盖差异项。
+- **视觉配置效率检查**：三个以上节点重复同一 `presentation` 时给出体验警告，提示提升到全局配置，
+  避免 story 数据与 Agent token 被重复样式描述占用。
 
 - **玩家目标与一次性机制教学**：节点支持 `objective` 当前目标；首次遇到人物关系、场景谜题或推理板时显示可关闭教学并随存档记忆；获得新证据时明确提示已加入推理板。
 - **推理板语义与进度**：原“线索板”统一更名为“推理板”，展示必需证据与替代证据组完成度；推论可用非剧透 `hint` 指引下一步调查。

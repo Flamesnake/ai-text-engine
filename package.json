@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc && node scripts/build-runtime.mjs",
     "test": "vitest run",
-    "mcp": "node dist/mcp/server.js"
+    "mcp": "node dist/mcp/server.js",
+    "check:projects": "node scripts/verify-projects.mjs",
+    "check:release": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

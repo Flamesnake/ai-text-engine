@@ -1,4 +1,4 @@
-import type { Condition, Effects, Story } from './types.js'
+import type { Condition, Deduction, Effects, Story } from './types.js'
 
 /**
  * 剧情数据静态校验（开发期 / AI 编辑后调用）。
@@ -206,10 +206,41 @@ export function validate(story: Story): string[] {
         }
       }
     }
-    for (const m of node.text.matchAll(/\{([^}#]+)\}/g)) {
-      const v = m[1].trim()
-      if (!writtenVars.has(v)) {
-        problems.push(`节点 "${node.id}" 的正文插值引用了从未被写入的变量 "{${v}}"`)
+
+    for (const [blockIndex, block] of (node.blocks ?? []).entries()) {
+      for (const [segmentIndex, segment] of (block.segments ?? []).entries()) {
+        if (!segment.revealWhen) continue
+        const location = `节点 "${node.id}" 第 ${blockIndex + 1} 个文本块第 ${segmentIndex + 1} 个片段`
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#evidence')) {
+          if (!story.evidence?.[ref]) problems.push(`${location}的揭示条件引用了不存在的证据 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#deduction')) {
+          if (!story.deductions?.[ref]) problems.push(`${location}的揭示条件引用了不存在的推论 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#puzzle')) {
+          if (!story.puzzles?.[ref]) problems.push(`${location}的揭示条件引用了不存在的谜题 "${ref}"`)
+        }
+        for (const v of collectConditionVars(segment.revealWhen)) {
+          if (!writtenVars.has(v) && !writtenItems.has(v)) {
+            problems.push(`${location}的揭示条件引用了从未被写入的变量/道具 "${v}"`)
+          }
+        }
+      }
+    }
+
+    const textSources = [
+      node.text,
+      ...(node.blocks ?? []).flatMap((block) => [
+        block.text,
+        ...(block.segments ?? []).map((segment) => segment.text),
+      ]),
+    ]
+    for (const source of textSources) {
+      for (const m of source.matchAll(/\{([^}#]+)\}/g)) {
+        const v = m[1].trim()
+        if (!writtenVars.has(v)) {
+          problems.push(`节点 "${node.id}" 的正文插值引用了从未被写入的变量 "{${v}}"`)
+        }
       }
     }
   }
@@ -292,10 +323,94 @@ export function validateExperience(story: Story): string[] {
   }
   for (const [deductionId, deduction] of Object.entries(story.deductions ?? {})) {
     if (!deduction.hint?.trim()) warnings.push(`推论 "${deductionId}" 缺少 hint，证据不足时玩家没有调查方向`)
+    const alternatives = deduction.requires.anyOf ?? []
+    if (alternatives.length >= 2 && alternatives.every((group) => group.length === 1)) {
+      warnings.push(
+        `推论 "${deductionId}" 的 anyOf 全是单元素组；当前语义是每组都必须满足。` +
+        `若想表达“这些证据任选其一”，应放在同一组中`,
+      )
+    }
   }
   for (const puzzleId of Object.keys(story.puzzles ?? {})) {
     if (!Object.values(story.nodes).some((node) => node.puzzles?.includes(puzzleId))) {
       warnings.push(`谜题 "${puzzleId}" 没有放置到任何节点，只能依赖全局工具入口`)
+    }
+  }
+
+  const trueEndingNodeIds = new Set(
+    Object.values(story.nodes)
+      .filter((node) => node.ending?.kind === 'true')
+      .map((node) => node.id),
+  )
+  const trueEndingEntries = Object.values(story.nodes).flatMap((node) =>
+    node.choices
+      .filter((choice) => trueEndingNodeIds.has(choice.target))
+      .map((choice) => ({ nodeId: node.id, choice })),
+  )
+  if (trueEndingEntries.length > 0 && Object.keys(story.deductions ?? {}).length >= 2) {
+    for (const { nodeId, choice } of trueEndingEntries) {
+      const minRequiredDeductions = Math.min(
+        ...conditionPositiveRefAlternatives(choice.when, '#deduction')
+          .map((refs) => refs.size),
+      )
+      if (minRequiredDeductions <= 1) {
+        warnings.push(
+          `节点 "${nodeId}" 的真结局入口仅要求 ${minRequiredDeductions} 条推论；` +
+          `复杂调查的真结局容易凭局部证据过度推断`,
+        )
+      }
+    }
+  }
+
+  if (trueEndingEntries.length > 0 && Object.keys(story.puzzles ?? {}).length > 0) {
+    const puzzleEvidence = new Set(
+      Object.values(story.puzzles ?? {}).flatMap((puzzle) => puzzle.onSolved?.gainEvidence ?? []),
+    )
+    const everyEntryBypassesPuzzleEvidence = trueEndingEntries.every(({ choice }) => {
+      const directPuzzleRequired = conditionRequiresPositiveRef(choice.when, '#puzzle')
+      if (directPuzzleRequired) return false
+      const alternatives = conditionPositiveRefAlternatives(choice.when, '#deduction')
+      return alternatives.some((deductionIds) =>
+        [...deductionIds].every((deductionId) =>
+          !deductionRequiresEvidenceFrom(story.deductions?.[deductionId], puzzleEvidence),
+        ),
+      )
+    })
+    if (everyEntryBypassesPuzzleEvidence) {
+      warnings.push(
+        `所有真结局入口都可绕过 ${Object.keys(story.puzzles ?? {}).length} 个谜题；` +
+        `应让至少一条必要推论使用谜题产出的证据`,
+      )
+    }
+  }
+
+  if (trueEndingEntries.length > 0 && storyUsesRelationshipMechanics(story)) {
+    const everyEntryBypassesRelationships = trueEndingEntries.every(({ choice }) =>
+      !conditionRequiresPositiveRelationshipState(choice.when),
+    )
+    if (everyEntryBypassesRelationships) {
+      warnings.push(
+        '所有真结局入口都可绕过人物关系/秘密/记忆系统；' +
+        '若人物调查是核心玩法，应让至少一项关系成果成为必要条件',
+      )
+    }
+  }
+
+  // Token/数据效率：同一局部视觉覆盖重复 3 次以上时，应提升到全局 meta.presentation。
+  const presentationGroups = new Map<string, string[]>()
+  for (const node of Object.values(story.nodes)) {
+    if (!node.presentation || Object.keys(node.presentation).length === 0) continue
+    const key = JSON.stringify(Object.fromEntries(Object.entries(node.presentation).sort(([a], [b]) => a.localeCompare(b))))
+    const ids = presentationGroups.get(key) ?? []
+    ids.push(node.id)
+    presentationGroups.set(key, ids)
+  }
+  for (const ids of presentationGroups.values()) {
+    if (ids.length >= 3) {
+      warnings.push(
+        `${ids.length} 个节点重复相同 presentation（${ids.slice(0, 3).join('、')}）；` +
+        '请提升到 meta.presentation，节点只保留差异项以减少重复数据和 token 消耗',
+      )
     }
   }
   return warnings
@@ -313,6 +428,81 @@ function collectSpecialRefs(cond: Condition | undefined, specialVar: string): st
   for (const child of cond.or ?? []) out.push(...collectSpecialRefs(child, specialVar))
   if (cond.not) out.push(...collectSpecialRefs(cond.not, specialVar))
   return out
+}
+
+/**
+ * 返回条件每条可满足逻辑分支正向要求的引用集合。
+ * ne/not 与无关条件不算掌握成果；and 合并要求，or 保留替代路径。
+ */
+function conditionPositiveRefAlternatives(
+  cond: Condition | undefined,
+  specialVar: string,
+): Set<string>[] {
+  if (!cond) return [new Set()]
+  let alternatives: Set<string>[] = [new Set()]
+  const own =
+    cond.var === specialVar && cond.op === 'eq' && cond.value !== undefined
+      ? String(cond.value)
+      : undefined
+  if (own) alternatives[0].add(own)
+
+  for (const child of cond.and ?? []) {
+    const childAlternatives = conditionPositiveRefAlternatives(child, specialVar)
+    alternatives = alternatives.flatMap((base) =>
+      childAlternatives.map((extra) => new Set([...base, ...extra])),
+    )
+  }
+  if ((cond.or?.length ?? 0) > 0) {
+    const orAlternatives = cond.or!.flatMap((child) =>
+      conditionPositiveRefAlternatives(child, specialVar),
+    )
+    alternatives = alternatives.flatMap((base) =>
+      orAlternatives.map((extra) => new Set([...base, ...extra])),
+    )
+  }
+  return alternatives
+}
+
+function conditionRequiresPositiveRef(cond: Condition | undefined, specialVar: string): boolean {
+  return conditionPositiveRefAlternatives(cond, specialVar)
+    .every((refs) => refs.size > 0)
+}
+
+function deductionRequiresEvidenceFrom(
+  deduction: Deduction | undefined,
+  evidenceIds: Set<string>,
+): boolean {
+  if (!deduction) return false
+  if ((deduction.requires.all ?? []).some((id) => evidenceIds.has(id))) return true
+  return (deduction.requires.anyOf ?? []).some((group) =>
+    group.length > 0 && group.every((id) => evidenceIds.has(id)),
+  )
+}
+
+function storyUsesRelationshipMechanics(story: Story): boolean {
+  if (Object.keys(story.characters ?? {}).length === 0) return false
+  const effects = Object.values(story.nodes).flatMap((node) => [
+    node.onEnter,
+    ...node.choices.map((choice) => choice.effects),
+  ])
+  return effects.some((effect) =>
+    (effect?.adjustRelation?.length ?? 0) > 0 ||
+    (effect?.remember?.length ?? 0) > 0 ||
+    (effect?.revealSecrets?.length ?? 0) > 0,
+  )
+}
+
+function conditionRequiresPositiveRelationshipState(cond: Condition | undefined): boolean {
+  if (!cond) return false
+  const ownPositive =
+    (cond.var?.startsWith('#relation:') && ['eq', 'gt', 'gte'].includes(cond.op ?? '')) ||
+    (['#memory', '#secret'].includes(cond.var ?? '') && cond.op === 'eq')
+  if (ownPositive) return true
+  if ((cond.and ?? []).some(conditionRequiresPositiveRelationshipState)) return true
+  if ((cond.or?.length ?? 0) > 0) {
+    return cond.or!.every(conditionRequiresPositiveRelationshipState)
+  }
+  return false
 }
 
 function collectRelationVars(cond: Condition | undefined): string[] {

@@ -118,5 +118,21 @@ describe('证据与推论', () => {
     const result = walkAllEndings(makeDeductionStory())
     expect(result.unreachableEndings).toEqual([])
     expect(result.endings.map((ending) => ending.endingId)).toEqual(['e_ordinary', 'e_truth'])
+    const witness = result.reachability.witnesses.find((item) => item.endingId === 'e_truth')!
+    expect(witness.actions).toContainEqual({
+      type: 'deduction',
+      nodeId: 'start',
+      deductionId: 'false_alibi',
+      evidence: ['stopped_clock', 'maid_testimony'],
+    })
+  })
+
+  it('has 形式的推论条件在运行时和路径探索中都能解锁结局', () => {
+    const story = makeDeductionStory()
+    story.nodes.start.choices[0].when = { op: 'has', var: '#deduction', value: 'false_alibi' }
+    const game = new Game(story)
+    expect(game.confirmDeduction('false_alibi', ['stopped_clock', 'maid_testimony'])).toBe(true)
+    expect(game.visibleChoices().map((choice) => choice.label)).toContain('揭穿管家的谎言')
+    expect(walkAllEndings(story).unreachableEndings).toEqual([])
   })
 })

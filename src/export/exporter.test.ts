@@ -64,6 +64,19 @@ describe('主题系统', () => {
     expect(dark).toContain('--scheme: dark')
   })
 
+  it('导出包含四种界面外壳样式与紧凑的 presentation 配置', async () => {
+    const story = makeStory()
+    story.meta.presentation = { shell: 'dossier', choiceStyle: 'list' }
+    const dir = await tmpDir()
+    const result = await exportToHtml(story, { outputDir: dir })
+    const html = await readFile(result.outputPath, 'utf-8')
+
+    for (const shell of ['novel', 'dossier', 'chat', 'cinematic']) {
+      expect(html).toContain(`.shell-${shell}`)
+    }
+    expect(html).toContain('"presentation":{"shell":"dossier","choiceStyle":"list"}')
+  })
+
   it('自定义 ThemeConfig 覆盖默认配色', async () => {
     const html = await exportWithTheme({ accent: '#ff0000', card: '#111111' })
     expect(html).toContain('--accent: #ff0000')
