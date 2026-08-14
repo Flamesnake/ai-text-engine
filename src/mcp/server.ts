@@ -6,6 +6,7 @@ import { observeToolCall, resetObservability, snapshotObservability } from './ob
 import { ENGINE_VERSION } from '../version.js'
 import {
   AchievementSchema,
+  ChoicePatchSchema,
   HudStatSchema,
   StoryDocumentSchema,
   StrictStoryNodeSchema,
@@ -15,10 +16,12 @@ import {
   DeductionSchema,
   CharacterSchema,
   PuzzleSchema,
+  SoundscapeSpecSchema,
+  StateAxisConfigSchema,
 } from '../core/schema.js'
 
 /**
- * ai-text-engine MCP 服务器（stdio）。
+ * TaleSpindle MCP 服务器（stdio）。
  * 让 AI 客户端通过工具操作引擎：创建项目、编辑节点、校验、导出单文件 HTML。
  *
  * 启动：npm run mcp （或 node dist/mcp/server.js）
@@ -26,7 +29,7 @@ import {
  */
 
 const server = new McpServer({
-  name: 'ai-text-engine',
+  name: 'talespindle',
   version: ENGINE_VERSION,
 })
 
@@ -65,7 +68,7 @@ server.tool(
 
 server.tool(
   'story_upsert_node',
-  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
+  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, sfx?, soundscape?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。choice 可带短 response，点击后显示在目标正文前，适合不同选项汇入同一节点时承接玩家行动。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。soundscape 是受控持续声景对象或 silence，只在声音变化处声明。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
   { title: z.string(), node: StrictStoryNodeSchema },
   wrap('story_upsert_node', (args) => handlers.upsertNode(args)),
 )
@@ -121,6 +124,40 @@ server.tool(
   '删除一个线索/文档定义。',
   { title: z.string(), documentId: z.string() },
   wrap('story_delete_document', (args) => handlers.deleteDocument(args)),
+)
+
+server.tool(
+  'story_get_node',
+  '读取单个完整节点及所有指向它的入边。局部审查或修稿优先使用本工具，避免 story_get 返回整部作品。',
+  { title: z.string(), nodeId: z.string() },
+  wrap('story_get_node', (args) => handlers.getNode(args)),
+)
+
+server.tool(
+  'story_review_transitions',
+  '分页返回紧凑的“源节点末段 → 选项 → response → 目标节点首段”审查包，用于检查选择关联、人物位置、因果与语气连续性。默认每页 20 条；onlyRisks 只筛确定性结构风险，不能代替人工阅读。',
+  {
+    title: z.string(),
+    nodeIds: z.array(z.string()).max(50).optional(),
+    onlyRisks: z.boolean().optional(),
+    cursor: z.number().int().nonnegative().optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  },
+  wrap('story_review_transitions', (args) => handlers.reviewProjectTransitions(args)),
+)
+
+server.tool(
+  'story_patch_choice',
+  '只修改一个选项，不覆盖整个节点。先从 story_get_node 或 story_review_transitions 取得 choiceIndex，并传 expectedLabel/expectedTarget 防止并行或过期索引误改；patch 可设置 label/response/target/when/effects，response/when/effects 传 null 表示删除。',
+  {
+    title: z.string(),
+    nodeId: z.string(),
+    choiceIndex: z.number().int().nonnegative(),
+    expectedLabel: z.string().optional(),
+    expectedTarget: z.string().optional(),
+    patch: ChoicePatchSchema,
+  },
+  wrap('story_patch_choice', (args) => handlers.patchChoice(args)),
 )
 
 server.tool(
@@ -197,9 +234,13 @@ server.tool(
 
 server.tool(
   'story_evaluate',
-  '评估作品体验与结构：返回有效选择、单选走廊、重复导航、机制使用、声画覆盖和 walk 健康度等事实指标与候选问题；不打总分，也不要求题材必须采用特定机制。',
-  { title: z.string() },
-  wrap('story_evaluate', (args) => handlers.evaluateProject(args.title)),
+  '快速评估作品体验与结构：返回选择承接、单选走廊、重复导航、机制回收、状态轴、声画覆盖和 walk 健康度等事实指标与候选问题；默认使用 1 万状态的诊断预算，不替代完整 story_walk。',
+  {
+    title: z.string(),
+    maxStates: z.number().int().positive().optional(),
+    witnessMaxStates: z.number().int().positive().optional(),
+  },
+  wrap('story_evaluate', (args) => handlers.evaluateProject(args)),
 )
 
 server.tool(
@@ -228,7 +269,7 @@ server.tool(
 
 server.tool(
   'story_set_meta',
-  '更新项目的元信息：副标题/作者/主题（内置名 dark|cyber|cozy|paper 或自定义配色对象）/HUD 统计条（好感度等）。',
+  '更新项目元信息：副标题/作者/主题/HUD/初始声景，以及 world、phase 两条结构化状态轴。状态轴格式为 {initial, states:{状态id:{label?, theme?, presentation?, soundscape?}}}；用 choice/onEnter effects.world 或 effects.phase 切换，用 #world/#phase 条件控制选项。',
   {
     title: z.string(),
     subtitle: z.string().optional(),
@@ -236,6 +277,9 @@ server.tool(
     theme: z.union([z.string(), ThemeConfigSchema]).optional(),
     hud: z.array(HudStatSchema).optional(),
     presentation: PresentationConfigSchema.optional(),
+    soundscape: SoundscapeSpecSchema.optional(),
+    world: StateAxisConfigSchema.optional(),
+    phase: StateAxisConfigSchema.optional(),
   },
   wrap('story_set_meta', (args) => handlers.setMeta(args)),
 )
@@ -279,6 +323,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('ai-text-engine MCP server 启动失败:', err)
+  console.error('TaleSpindle MCP server 启动失败:', err)
   process.exit(1)
 })

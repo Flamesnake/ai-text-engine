@@ -1,5 +1,5 @@
-import type { Condition, Effects, Story, StoryNode } from './types.js'
-import { walkAllEndings, type WalkResult } from './walk.js'
+import type { Condition, Effects, StateAppearance, Story, StoryNode } from './types.js'
+import { walkAllEndings, type WalkOptions, type WalkResult } from './walk.js'
 
 export type EvaluationSeverity = 'info' | 'warning'
 
@@ -35,6 +35,13 @@ export interface StoryEvaluation {
     duplicateOutcomeGroups: number
     repeatedLabels: Array<{ label: string; count: number }>
   }
+  narrative: {
+    choicesWithResponse: number
+    responseRatio: number
+    convergingChoiceGroups: number
+    convergingGroupsWithoutFullResponse: number
+    repeatedOpenings: Array<{ opening: string; count: number }>
+  }
   mechanics: {
     puzzles: { defined: number; placed: number; gatedChoices: number; unrecovered: string[] }
     deductions: { defined: number; gatedChoices: number; withEffects: number; unrecovered: string[] }
@@ -55,22 +62,54 @@ export interface StoryEvaluation {
     conditionalSegments: number
     segmentStyleUsage: Array<{ name: string; count: number }>
     sfxNodes: number
+    soundscapeSwitchNodes: number
     fxNodes: number
     sfxUsage: Array<{ name: string; count: number }>
+    soundscapeUsage: Array<{ name: string; count: number }>
     fxUsage: Array<{ name: string; count: number }>
+    stateAxes: {
+      worldStates: number
+      phaseStates: number
+      worldSwitches: number
+      phaseSwitches: number
+      worldGatedChoices: number
+      phaseGatedChoices: number
+      worldAppearanceStates: number
+      phaseAppearanceStates: number
+      gatedChoices: number
+    }
   }
   performance: { walk: WalkResult }
   findings: EvaluationFinding[]
 }
 
+export interface StoryEvaluationOptions {
+  /** 复用调用方已有的路径结果，避免 validate/evaluate/walk 重复做同一轮昂贵探索。 */
+  walk?: WalkResult
+  /** 未注入 walk 时使用的探索参数。 */
+  walkOptions?: WalkOptions
+}
+
 /**
  * 对作品返回事实指标与带证据的候选问题。它不打总分，也不假设某题材必须采用某种机制。
  */
-export function evaluateStory(story: Story): StoryEvaluation {
+export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}): StoryEvaluation {
   const nodes = Object.values(story.nodes)
   const nonEnding = nodes.filter((node) => !node.ending)
   const choiceEntries = nodes.flatMap((node) => node.choices.map((choice) => ({ node, choice })))
   const choices = choiceEntries.map((entry) => entry.choice)
+  const allEffects = [
+    ...nodes.map((node) => node.onEnter),
+    ...choices.map((choice) => choice.effects),
+    ...Object.values(story.deductions ?? {}).map((deduction) => deduction.onConfirmed),
+    ...Object.values(story.puzzles ?? {}).map((puzzle) => puzzle.onSolved),
+  ]
+  const worldSwitches = allEffects.filter((effects) => effects?.world !== undefined).length
+  const phaseSwitches = allEffects.filter((effects) => effects?.phase !== undefined).length
+  const worldGatedChoices = choices.filter((choice) => conditionRefs(choice.when, '#world').length > 0).length
+  const phaseGatedChoices = choices.filter((choice) => conditionRefs(choice.when, '#phase').length > 0).length
+  const stateGatedChoices = choices.filter((choice) =>
+    conditionRefs(choice.when, '#world').length > 0 || conditionRefs(choice.when, '#phase').length > 0).length
   const singleChoiceNodes = nonEnding.filter((node) => node.choices.length === 1).length
   const effectfulChoices = choices.filter((choice) => hasEffects(choice.effects)).length
   const conditionalChoices = choices.filter((choice) => choice.when !== undefined).length
@@ -90,7 +129,25 @@ export function evaluateStory(story: Story): StoryEvaluation {
       .filter((labels) => labels.length > 1)
       .map((labels) => ({ nodeId: node.id, labels }))
   })
+  const convergingChoiceGroups = nodes.flatMap((node) => {
+    const groups = new Map<string, typeof node.choices>()
+    for (const choice of node.choices) groups.set(choice.target, [...(groups.get(choice.target) ?? []), choice])
+    return [...groups.entries()]
+      .filter(([, group]) => group.length > 1)
+      .map(([target, group]) => ({ nodeId: node.id, target, choices: group }))
+  })
+  const convergingWithoutResponse = convergingChoiceGroups.filter((group) =>
+    group.choices.some((choice) => !choice.response?.trim()))
+  const choicesWithResponse = choices.filter((choice) => Boolean(choice.response?.trim())).length
+  const repeatedOpenings = countBy(nodes.map(nodeOpening).filter((opening) => opening.length >= 12), 'opening')
+    .filter((item) => item.count >= 3)
   const sfxUsage = countBy(nodes.flatMap((node) => node.sfx ? [node.sfx] : []), 'name')
+  const soundscapeUsage = countBy([
+    ...(story.meta.soundscape ? [story.meta.soundscape.name] : []),
+    ...nodes.flatMap((node) => node.soundscape && node.soundscape !== 'silence' ? [node.soundscape.name] : []),
+    ...[story.meta.world, story.meta.phase].flatMap((axis) => Object.values(axis?.states ?? {})
+      .flatMap((state) => state.soundscape && state.soundscape !== 'silence' ? [state.soundscape.name] : [])),
+  ], 'name')
   const fxUsage = countBy(nodes.flatMap((node) => (node.fx ?? []).map((fx) =>
     typeof fx === 'string' ? fx : fx.name)), 'name')
   const segments = nodes.flatMap((node) => (node.blocks ?? []).flatMap((block) => block.segments ?? []))
@@ -112,7 +169,11 @@ export function evaluateStory(story: Story): StoryEvaluation {
     }))
   const highIntensityFx = nodes.filter((node) => (node.fx ?? []).some((item) =>
     typeof item !== 'string' && (item.intensity ?? 1) >= 1.5))
-  const walk = walkAllEndings(story, { diagnostics: true, topNodes: 8 })
+  const walk = options.walk ?? walkAllEndings(story, {
+    ...options.walkOptions,
+    diagnostics: options.walkOptions?.diagnostics ?? true,
+    topNodes: options.walkOptions?.topNodes ?? 8,
+  })
 
   const puzzleIds = new Set(Object.keys(story.puzzles ?? {}))
   const placedPuzzles = new Set(nodes.flatMap((node) => node.puzzles ?? []).filter((id) => puzzleIds.has(id)))
@@ -132,6 +193,10 @@ export function evaluateStory(story: Story): StoryEvaluation {
     ...Object.values(story.puzzles ?? {}).map((puzzle) => puzzle.requires),
     ...(story.achievements ?? []).map((achievement) => achievement.when),
   ]
+  const worldAppearanceStates = countAppearanceStates(story.meta.world?.states)
+  const phaseAppearanceStates = countAppearanceStates(story.meta.phase?.states)
+  const worldTextRefs = countAxisTextRefs(nodes, '#world')
+  const phaseTextRefs = countAxisTextRefs(nodes, '#phase')
   const directlyReferencedDeductions = conditionRefSet(allConditions, '#deduction')
   const directlyReferencedPuzzles = conditionRefSet(allConditions, '#puzzle')
   const directlyReferencedEvidence = conditionRefSet(allConditions, '#evidence')
@@ -152,6 +217,38 @@ export function evaluateStory(story: Story): StoryEvaluation {
   const unrecoveredPuzzles = Object.keys(story.puzzles ?? {}).filter((id) => !recoveredPuzzles.has(id)).sort()
 
   const findings: EvaluationFinding[] = []
+  if ((Object.keys(story.meta.world?.states ?? {}).length > 1) && worldSwitches === 0) {
+    findings.push({
+      code: 'UNUSED_WORLD_STATES', severity: 'warning',
+      message: 'world 定义了多个状态，但没有任何效果切换 world；除初始状态外的外观与条件不会在游玩中出现',
+    })
+  }
+  if ((Object.keys(story.meta.phase?.states ?? {}).length > 1) && phaseSwitches === 0) {
+    findings.push({
+      code: 'UNUSED_PHASE_STATES', severity: 'warning',
+      message: 'phase 定义了多个状态，但没有任何效果切换 phase；除初始状态外的外观与条件不会在游玩中出现',
+    })
+  }
+  if (worldSwitches > 0 && worldAppearanceStates === 0 && worldGatedChoices === 0 && worldTextRefs === 0) {
+    findings.push({
+      code: 'WRITE_ONLY_WORLD_STATE', severity: 'warning',
+      message: `world 被切换 ${worldSwitches} 次，但没有改变外观、选项或可见文本；它只扩大路径状态而没有玩家可感知的作用`,
+    })
+  }
+  if (phaseSwitches > 0 && phaseAppearanceStates === 0 && phaseGatedChoices === 0 && phaseTextRefs === 0) {
+    findings.push({
+      code: 'WRITE_ONLY_PHASE_STATE', severity: 'warning',
+      message: `phase 被切换 ${phaseSwitches} 次，但没有改变外观、选项或可见文本；它只扩大路径状态而没有玩家可感知的作用`,
+    })
+  }
+  const worldSoundscapes = Object.values(story.meta.world?.states ?? {}).filter((state) => state.soundscape !== undefined).length
+  const phaseSoundscapes = Object.values(story.meta.phase?.states ?? {}).filter((state) => state.soundscape !== undefined).length
+  if (worldSoundscapes > 0 && phaseSoundscapes > 0) {
+    findings.push({
+      code: 'OVERLAPPING_STATE_SOUNDSCAPES', severity: 'info',
+      message: `world 与 phase 都声明了状态声景（${worldSoundscapes}/${phaseSoundscapes}）；当前 phase 会覆盖 world，请确认一个轴负责基础声景，另一个轴只在必要处例外`,
+    })
+  }
   const longestSingleChoiceRun = findLongestSingleChoiceRun(story)
   if (longestSingleChoiceRun >= 3) {
     findings.push({
@@ -185,6 +282,21 @@ export function evaluateStory(story: Story): StoryEvaluation {
       evidence: duplicateOutcomeEntries.slice(0, 10).map((item) => `${item.nodeId}: ${item.labels.join(' / ')}`),
     })
   }
+  if (convergingWithoutResponse.length > 0) {
+    findings.push({
+      code: 'CONVERGING_CHOICES_WITHOUT_RESPONSE', severity: 'info',
+      message: `${convergingWithoutResponse.length} 组选项以不同说法汇入同一节点，但没有为每条路径提供即时承接；目标正文容易显得与刚才的选择无关`,
+      evidence: convergingWithoutResponse.slice(0, 10).map((item) =>
+        `${item.nodeId} -> ${item.target}: ${item.choices.map((choice) => choice.label).join(' / ')}`),
+    })
+  }
+  if (repeatedOpenings.length > 0) {
+    findings.push({
+      code: 'REPEATED_NODE_OPENING', severity: 'info',
+      message: `${repeatedOpenings.length} 个节点开头在至少 3 处完全重复；这不是 AI 文风判定，只是值得人工检查的模板化痕迹`,
+      evidence: repeatedOpenings.slice(0, 10).map((item) => `${item.count}x ${item.opening}`),
+    })
+  }
   if (puzzleIds.size > 0 && placedPuzzles.size < puzzleIds.size) {
     findings.push({
       code: 'UNPLACED_PUZZLES', severity: 'warning',
@@ -199,6 +311,7 @@ export function evaluateStory(story: Story): StoryEvaluation {
     '解开后既不产生效果，也不改变条件、行动或结局')
   const dominantSfx = sfxUsage[0]
   const sfxNodeCount = nodes.filter((node) => Boolean(node.sfx)).length
+  const soundscapeSwitchNodes = nodes.filter((node) => node.soundscape !== undefined).length
   if (nodes.length >= 5 && sfxNodeCount === nodes.length) {
     findings.push({
       code: 'SFX_EVERYWHERE', severity: 'info',
@@ -223,6 +336,17 @@ export function evaluateStory(story: Story): StoryEvaluation {
       code: 'REDUNDANT_SYSTEM_SFX', severity: 'info',
       message: `${systemSfxNodes.length} 个节点手动声明 click/page/achievement/ending_*；这些反馈已有系统触发，节点 sfx 应承担额外叙事作用`,
       evidence: systemSfxNodes.slice(0, 10).map((node) => `${node.id}: ${node.sfx}`),
+    })
+  }
+  const repeatedSoundscape = soundscapeUsage.find((item) => item.count >= 4)
+  if (repeatedSoundscape) {
+    findings.push({
+      code: 'REPEATED_SOUNDSCAPE_DECLARATION', severity: 'info',
+      message: `声景「${repeatedSoundscape.name}」被声明 ${repeatedSoundscape.count} 次；声景会跨节点持续，通常只需在变化处声明`,
+      evidence: nodes
+        .filter((node) => node.soundscape !== 'silence' && node.soundscape?.name === repeatedSoundscape.name)
+        .map((node) => node.id)
+        .slice(0, 10),
     })
   }
   if (longReadingStrongFx.length > 0) {
@@ -288,6 +412,13 @@ export function evaluateStory(story: Story): StoryEvaluation {
       duplicateOutcomeGroups: duplicateOutcomeEntries.length,
       repeatedLabels,
     },
+    narrative: {
+      choicesWithResponse,
+      responseRatio: ratio(choicesWithResponse, choices.length),
+      convergingChoiceGroups: convergingChoiceGroups.length,
+      convergingGroupsWithoutFullResponse: convergingWithoutResponse.length,
+      repeatedOpenings,
+    },
     mechanics: {
       puzzles: {
         defined: puzzleIds.size, placed: placedPuzzles.size, gatedChoices: puzzleGates,
@@ -320,9 +451,22 @@ export function evaluateStory(story: Story): StoryEvaluation {
       conditionalSegments: segments.filter((segment) => segment.revealWhen !== undefined).length,
       segmentStyleUsage,
       sfxNodes: sfxNodeCount,
+      soundscapeSwitchNodes,
       fxNodes: nodes.filter((node) => (node.fx?.length ?? 0) > 0).length,
       sfxUsage,
+      soundscapeUsage,
       fxUsage,
+      stateAxes: {
+        worldStates: Object.keys(story.meta.world?.states ?? {}).length,
+        phaseStates: Object.keys(story.meta.phase?.states ?? {}).length,
+        worldSwitches,
+        phaseSwitches,
+        worldGatedChoices,
+        phaseGatedChoices,
+        worldAppearanceStates,
+        phaseAppearanceStates,
+        gatedChoices: stateGatedChoices,
+      },
     },
     performance: { walk },
     findings,
@@ -333,11 +477,11 @@ function ratio(value: number, total: number): number {
   return total > 0 ? Number((value / total).toFixed(4)) : 0
 }
 
-function countBy(values: string[], key: 'label' | 'name' = 'label'): Array<Record<typeof key, string> & { count: number }> {
+function countBy<K extends string = 'label'>(values: string[], key: K = 'label' as K): Array<Record<K, string> & { count: number }> {
   const counts = new Map<string, number>()
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1)
   return [...counts.entries()]
-    .map(([value, count]) => ({ [key]: value, count }) as Record<typeof key, string> & { count: number })
+    .map(([value, count]) => ({ [key]: value, count }) as Record<K, string> & { count: number })
     .sort((a, b) => b.count - a.count || a[key].localeCompare(b[key]))
 }
 
@@ -393,6 +537,30 @@ function nodeTextLength(node: StoryNode): number {
     return node.blocks!.reduce((sum, block) => sum + block.text.length + (block.title?.length ?? 0), 0)
   }
   return node.text.length
+}
+
+function nodeOpening(node: StoryNode): string {
+  const text = (node.blocks?.length ? node.blocks.map((block) => block.text).join('\n') : node.text)
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.slice(0, 18)
+}
+
+function countAppearanceStates(states: Record<string, StateAppearance> | undefined): number {
+  return Object.values(states ?? {}).filter((state) =>
+    state.theme !== undefined || state.presentation !== undefined || state.soundscape !== undefined).length
+}
+
+function countAxisTextRefs(nodes: StoryNode[], token: '#world' | '#phase'): number {
+  return nodes.filter((node) => {
+    const texts = [
+      node.text,
+      node.objective ?? '',
+      ...(node.blocks ?? []).flatMap((block) => [block.text, block.title ?? '', ...(block.segments ?? []).map((segment) => segment.text)]),
+      ...node.choices.flatMap((choice) => [choice.label, choice.response ?? '']),
+    ]
+    return texts.some((text) => text.includes(`{${token}}`))
+  }).length
 }
 
 function conditionHasRelationshipRef(condition: Condition | undefined, story: Story): boolean {

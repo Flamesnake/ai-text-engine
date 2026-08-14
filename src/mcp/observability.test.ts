@@ -21,9 +21,13 @@ describe('MCP 成本观测', () => {
   it('统计同一资源重复覆盖、失败调用和可清零窗口', async () => {
     await observeToolCall('story_upsert_node', { title: '测试', node: { id: 'n1' } }, async () => ({ ok: true }))
     await observeToolCall('story_upsert_node', { title: '测试', node: { id: 'n1' } }, async () => ({ ok: true }))
+    await observeToolCall('story_get_node', { title: '测试', nodeId: 'n1' }, async () => ({ ok: true }))
+    await observeToolCall('story_review_transitions', { title: '测试' }, async () => ({ ok: true }))
     await expect(observeToolCall('story_get', { title: '测试' }, async () => { throw new Error('x') })).rejects.toThrow('x')
     const report = snapshotObservability()
-    expect(report.totals).toMatchObject({ calls: 3, failures: 1, fullReads: 1, repeatedOverwrites: 1 })
+    expect(report.totals).toMatchObject({
+      calls: 5, failures: 1, fullReads: 1, partialReads: 1, transitionReviews: 1, repeatedOverwrites: 1,
+    })
     resetObservability()
     expect(snapshotObservability().totals.calls).toBe(0)
   })

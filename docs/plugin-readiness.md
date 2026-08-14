@@ -43,7 +43,7 @@ npm run check:package
 
 ## 安装后的健康检查契约
 
-通用安装流程最终只需证明：Node 运行时可用、CLI doctor 通过、MCP 返回完整工具清单、预构建运行时可以导出单 HTML、Skill 可显式安装。作品写入用户数据目录或 `AI_TEXT_ENGINE_HOME`，不得写入 `node_modules`。若失败，应直接显示缺失项和修复命令，不让创作 Agent 通过导入 handler 或临时 stdio 脚本绕过配置。
+通用安装流程最终只需证明：Node 运行时可用、CLI doctor 通过、MCP 返回完整工具清单、预构建运行时可以导出单 HTML、Skill 可显式安装。作品写入用户数据目录或 `TALESPINDLE_HOME`，不得写入 `node_modules`；旧变量 `AI_TEXT_ENGINE_HOME` 仅作为兼容回退。若失败，应直接显示缺失项和修复命令，不让创作 Agent 通过导入 handler 或临时 stdio 脚本绕过配置。
 
 ## npm 准备状态
 
@@ -51,4 +51,4 @@ npm run check:package
 - 发布清单只包含 `dist`、`skill`、README、CHANGELOG 和 LICENSE；
 - 构建会清理旧 dist 并排除测试产物；导出器优先读取预构建 runtime，不要求用户安装 esbuild；
 - MCP SDK 已归入运行依赖；tarball 会在空目录以 `--omit=dev` 安装验证；
-- 当前保留 `private: true`，确认 npm scope/包名后才允许真正发布。
+- npm 包名为 `@marianaj/talespindle`，`0.1.0` 已公开发布；`0.2.0` 候选已通过发布白名单与空目录安装验收，仍需在合并前复核 tarball 并显式执行发布命令。

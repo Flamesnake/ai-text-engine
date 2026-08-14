@@ -4,14 +4,19 @@
  * 浏览器端专用：AudioContext 在首次播放时惰性创建（符合浏览器自动播放策略）。
  */
 
-import type { SfxName } from '../core/types.js'
-export type { SfxName } from '../core/types.js'
+import type { SfxName, SoundscapeSpec } from '../core/types.js'
+export type { SfxName, SoundscapeSpec } from '../core/types.js'
 
 const MUTE_KEY = 'ate:sfx:muted'
 
 let audioCtx: AudioContext | null = null
 let masterGain: GainNode | null = null
 let muted = false
+let activeSoundscape: {
+  key: string
+  gain: GainNode
+  sources: AudioScheduledSourceNode[]
+} | null = null
 
 /** 是否静音 */
 export function isMuted(): boolean {
@@ -129,6 +134,111 @@ const SFX: Record<SfxName, (ctx: AudioContext) => void> = {
   },
 }
 
+const SOUNDSCAPE_GAIN = {
+  subtle: 0.32,
+  medium: 0.58,
+  strong: 0.9,
+} as const
+
+/**
+ * 切换持续声景。相同规格不会重新起音；不同规格固定交叉淡化，null 表示淡出到寂静。
+ * 声景参数保持为叙事语义枚举，不暴露振荡器或音符 DSL。
+ */
+export function setSoundscape(spec: SoundscapeSpec | null): void {
+  const key = spec ? `${spec.name}:${spec.intensity ?? 'medium'}` : 'silence'
+  if (activeSoundscape?.key === key || (!activeSoundscape && !spec)) return
+
+  const ctx = spec ? ensureCtx() : audioCtx
+  if (!ctx || ctx.state === 'closed') {
+    activeSoundscape = null
+    return
+  }
+
+  fadeOutSoundscape(ctx)
+  if (!spec) return
+
+  try {
+    const gain = ctx.createGain()
+    const now = ctx.currentTime
+    const target = SOUNDSCAPE_GAIN[spec.intensity ?? 'medium']
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.linearRampToValueAtTime(target, now + 1.2)
+    gain.connect(masterGain ?? ctx.destination)
+    const sources = createSoundscape(ctx, spec.name, gain)
+    activeSoundscape = { key, gain, sources }
+  } catch {
+    activeSoundscape = null
+  }
+}
+
+function fadeOutSoundscape(ctx: AudioContext): void {
+  const previous = activeSoundscape
+  activeSoundscape = null
+  if (!previous) return
+  const now = ctx.currentTime
+  try {
+    previous.gain.gain.cancelScheduledValues(now)
+    previous.gain.gain.setValueAtTime(previous.gain.gain.value, now)
+    previous.gain.gain.linearRampToValueAtTime(0.0001, now + 1.2)
+    for (const source of previous.sources) source.stop(now + 1.25)
+  } catch {
+    for (const source of previous.sources) {
+      try { source.stop() } catch { /* already stopped */ }
+    }
+  }
+}
+
+function createSoundscape(
+  ctx: AudioContext,
+  name: SoundscapeSpec['name'],
+  destination: AudioNode,
+): AudioScheduledSourceNode[] {
+  const sources: AudioScheduledSourceNode[] = []
+  const osc = (type: OscillatorType, frequency: number, level: number): void => {
+    const source = ctx.createOscillator()
+    const gain = ctx.createGain()
+    source.type = type
+    source.frequency.setValueAtTime(frequency, ctx.currentTime)
+    gain.gain.setValueAtTime(level, ctx.currentTime)
+    source.connect(gain)
+    gain.connect(destination)
+    source.start()
+    sources.push(source)
+  }
+  const noise = (frequency: number, level: number, filterType: BiquadFilterType = 'lowpass'): void => {
+    const length = Math.max(1, Math.floor(ctx.sampleRate * 2))
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+    const source = ctx.createBufferSource()
+    const filter = ctx.createBiquadFilter()
+    const gain = ctx.createGain()
+    source.buffer = buffer
+    source.loop = true
+    filter.type = filterType
+    filter.frequency.setValueAtTime(frequency, ctx.currentTime)
+    gain.gain.setValueAtTime(level, ctx.currentTime)
+    source.connect(filter)
+    filter.connect(gain)
+    gain.connect(destination)
+    source.start()
+    sources.push(source)
+  }
+
+  switch (name) {
+    case 'rain': noise(1800, 0.14); noise(4200, 0.035, 'highpass'); break
+    case 'wind': noise(620, 0.13); osc('sine', 74, 0.018); break
+    case 'storm': noise(1100, 0.17); osc('sine', 42, 0.12); break
+    case 'waves': noise(380, 0.14); osc('sine', 58, 0.025); break
+    case 'broadcast': noise(2400, 0.055); osc('sine', 112, 0.018); break
+    case 'electric': osc('sawtooth', 50, 0.045); osc('sine', 100, 0.025); break
+    case 'ventilation': noise(520, 0.09); osc('sine', 61, 0.04); break
+    case 'engine': osc('sawtooth', 46, 0.055); osc('sine', 92, 0.04); break
+    case 'void': osc('sine', 38, 0.07); osc('sine', 57, 0.025); break
+  }
+  return sources
+}
+
 /** 播放音效（静音或环境不支持时静默） */
 export function playSfx(name: SfxName): void {
   if (muted) return
@@ -144,6 +254,8 @@ export function playSfx(name: SfxName): void {
 /** 宿主卸载游戏或测试结束时释放共享 AudioContext。 */
 export async function disposeSfx(): Promise<void> {
   const ctx = audioCtx
+  if (ctx && ctx.state !== 'closed') fadeOutSoundscape(ctx)
+  activeSoundscape = null
   audioCtx = null
   masterGain = null
   if (!ctx || ctx.state === 'closed') return

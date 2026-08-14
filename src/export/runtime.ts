@@ -1,6 +1,7 @@
 import { Game } from '../core/engine.js'
-import type { EndingMeta, GameState, PresentationConfig, Story, StoryNode, TextBlock, TextSegment } from '../core/types.js'
-import { disposeSfx, initSfx, isMuted, playSfx, toggleMuted, type SfxName } from './sfx.js'
+import type { EndingMeta, GameState, PresentationConfig, SoundscapeSpec, StateAppearance, Story, StoryNode, TextBlock, TextSegment, ThemeConfig } from '../core/types.js'
+import { disposeSfx, initSfx, isMuted, playSfx, setSoundscape, toggleMuted, type SfxName } from './sfx.js'
+import { resolveTheme } from './themes.js'
 
 /**
  * 运行时渲染器：内嵌于导出的单文件 HTML 中（经 esbuild bundle 成 IIFE）。
@@ -20,6 +21,31 @@ export interface MountedTextAdventure {
   destroy(): Promise<void>
 }
 
+/** 由存档访问序列重建最近一次持续声景，供恢复存档与运行时测试共用。 */
+export function resolveSoundscapeForHistory(
+  story: Story,
+  history: readonly string[],
+  world?: string,
+  phase?: string,
+): SoundscapeSpec | null {
+  let current = story.meta.soundscape ?? null
+  for (const nodeId of history) {
+    const declared = story.nodes[nodeId]?.soundscape
+    if (declared === 'silence') current = null
+    else if (declared) current = declared
+  }
+  const applyState = (appearance: StateAppearance | undefined): void => {
+    if (appearance?.soundscape === 'silence') current = null
+    else if (appearance?.soundscape) current = appearance.soundscape
+  }
+  applyState(world ? story.meta.world?.states[world] : undefined)
+  applyState(phase ? story.meta.phase?.states[phase] : undefined)
+  const currentNodeSoundscape = story.nodes[history.at(-1) ?? '']?.soundscape
+  if (currentNodeSoundscape === 'silence') current = null
+  else if (currentNodeSoundscape) current = currentNodeSoundscape
+  return current
+}
+
 export function mountTextAdventure(root: HTMLElement, story: Story, options?: MountOptions): MountedTextAdventure {
   const storage = options?.storage ?? window.localStorage
   const saveKey = options?.saveKey ?? `ate:${story.meta.title}`
@@ -30,6 +56,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   let lastEvidence: string[] = []
   /** 不稳定灯随机爆发定时器 */
   let unstableTimer: ReturnType<typeof setTimeout> | null = null
+  let lastRenderedStateKey: string | null = null
 
   initSfx()
 
@@ -152,6 +179,56 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     if (node.sfx) playSfx(node.sfx)
   }
 
+  /**
+   * 从实际访问历史恢复最近一次声景切换；未声明的节点沿用，避免重复配置。
+   * 新游戏从 meta.soundscape 开始，节点 silence 显式覆盖为寂静。
+   */
+  function resolveSoundscape(): SoundscapeSpec | null {
+    return resolveSoundscapeForHistory(story, game.state.history, game.state.world, game.state.phase)
+  }
+
+  function stateAppearance(axis: 'world' | 'phase', id: string | undefined): StateAppearance | undefined {
+    return id ? story.meta[axis]?.states[id] : undefined
+  }
+
+  function currentState(): GameState | undefined {
+    return typeof game === 'undefined' ? undefined : game.state
+  }
+
+  function currentAppearances(): StateAppearance[] {
+    const state = currentState()
+    if (!state) return []
+    return [stateAppearance('world', state.world), stateAppearance('phase', state.phase)]
+      .filter((item): item is StateAppearance => Boolean(item))
+  }
+
+  function effectiveTheme(): string | ThemeConfig | undefined {
+    let theme = story.meta.theme
+    for (const appearance of currentAppearances()) {
+      if (appearance.theme !== undefined) theme = appearance.theme
+    }
+    return theme
+  }
+
+  function applyTheme(useState = true): void {
+    const resolved = resolveTheme(useState ? effectiveTheme() : story.meta.theme)
+    const c = resolved.colors
+    const style = document.documentElement.style
+    style.setProperty('--scheme', resolved.scheme)
+    style.setProperty('--bg', c.background)
+    style.setProperty('--card', c.card)
+    style.setProperty('--border', c.border)
+    style.setProperty('--border-glow', c.borderGlow)
+    style.setProperty('--text', c.text)
+    style.setProperty('--text-dim', c.textDim)
+    style.setProperty('--accent', c.accent)
+    style.setProperty('--danger', c.danger)
+    style.setProperty('--gold', c.gold)
+    style.setProperty('--green', c.green)
+    style.setProperty('--purple', c.purple)
+    style.colorScheme = resolved.scheme
+  }
+
   const presentationDefaults: Required<PresentationConfig> = {
     shell: 'novel',
     typography: 'literary',
@@ -162,7 +239,16 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /** 全局只定义一次，节点仅覆盖差异项；返回稳定 class 供 CSS 外壳组合。 */
   function presentationClasses(node?: StoryNode): string {
-    const p = { ...presentationDefaults, ...(story.meta.presentation ?? {}), ...(node?.presentation ?? {}) }
+    const statePresentation = currentAppearances().reduce<PresentationConfig>(
+      (merged, appearance) => ({ ...merged, ...(appearance.presentation ?? {}) }),
+      {},
+    )
+    const p = {
+      ...presentationDefaults,
+      ...(story.meta.presentation ?? {}),
+      ...statePresentation,
+      ...(node?.presentation ?? {}),
+    }
     return [
       `shell-${p.shell}`,
       `type-${p.typography}`,
@@ -174,6 +260,9 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   function renderTitle(): void {
     clearUnstable()
+    setSoundscape(null)
+    applyTheme(false)
+    lastRenderedStateKey = null
     const has = hasSave()
     const achCount = (story.achievements ?? []).length
     root.innerHTML = `
@@ -269,8 +358,15 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     save()
     const node = game.currentNode
     const step = game.stepCount
+    applyTheme()
+    setSoundscape(resolveSoundscape())
+    const stateKey = `${game.state.world}\u0000${game.state.phase}`
+    const transitionClass = lastRenderedStateKey !== null && lastRenderedStateKey !== stateKey
+      ? 'state-transition'
+      : ''
+    lastRenderedStateKey = stateKey
     if (game.isEnding && node.ending) {
-      renderEnding(node.ending, step)
+      renderEnding(node.ending, step, transitionClass)
       return
     }
     const choices = game.visibleChoices()
@@ -281,7 +377,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)}" data-node-id="${esc(node.id)}">
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
@@ -297,6 +393,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         ${newEvidence.length > 0 ? `<aside class="evidence-notice"><strong>新证据</strong><span>${newEvidence.map((id) => esc(story.evidence?.[id]?.title ?? id)).join('、')}已加入推理板，可与其他证据组合。</span></aside>` : ''}
         ${tutorial ? tutorialBanner(tutorial) : ''}
         <section class="card ${fx.cls}" style="${fx.style}">
+          ${renderChoiceResponse()}
           ${renderBody(node)}
           <div class="card-actions">
             ${deductionAction()}
@@ -337,6 +434,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   }
 
   /** 节点正文渲染：blocks 存在时分类型排版，否则普通段落 */
+  function renderChoiceResponse(): string {
+    const trace = game.state.lastChoice
+    if (!trace?.response || trace.targetNodeId !== game.state.nodeId) return ''
+    return `<aside class="choice-response" data-choice-response="true">${esc(game.interpolate(trace.response))}</aside>`
+  }
+
   function renderBody(node: StoryNode): string {
     const blocks = node.blocks
     if (blocks?.length) {
@@ -631,7 +734,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     bind('[data-action="back"]', () => renderDocsList())
   }
 
-  function renderEnding(ending: EndingMeta, step: number): void {
+  function renderEnding(ending: EndingMeta, step: number, transitionClass = ''): void {
     const kindLabel: Record<EndingMeta['kind'], string> = {
       good: '结局 · 生还',
       bad: '结局 · 终焉',
@@ -642,7 +745,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playSfx(`ending_${ending.kind}` as SfxName)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}">
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}">
         <header class="game-header">
           <span class="game-title">${esc(story.meta.title)}</span>
           <span class="game-step">第 ${step} 步</span>
@@ -655,6 +758,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         <section class="card card-ending ending-${ending.kind} ${fx.cls}" style="${fx.style}">
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>
+          ${renderChoiceResponse()}
           ${renderBody(node)}
           <div class="card-actions ending-actions">
             <button class="btn btn-primary" data-action="replay">再来一次</button>

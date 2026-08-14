@@ -20,6 +20,8 @@ export interface ObservabilitySnapshot {
     approximateTokens: number
     durationMs: number
     fullReads: number
+    partialReads: number
+    transitionReviews: number
     validations: number
     walks: number
     exports: number
@@ -89,6 +91,8 @@ export function snapshotObservability(): ObservabilitySnapshot {
       approximateTokens: Math.ceil((requestBytes + responseBytes) / 4),
       durationMs: round(durationMs),
       fullReads: tools.get('story_get')?.calls ?? 0,
+      partialReads: tools.get('story_get_node')?.calls ?? 0,
+      transitionReviews: tools.get('story_review_transitions')?.calls ?? 0,
       validations: tools.get('story_validate')?.calls ?? 0,
       walks: tools.get('story_walk')?.calls ?? 0,
       exports: tools.get('story_export')?.calls ?? 0,
@@ -120,6 +124,11 @@ function round(value: number): number {
 function writeResource(tool: string, args: unknown): string | null {
   if (!args || typeof args !== 'object') return null
   const data = args as Record<string, any>
+  if (tool === 'story_patch_choice') {
+    return typeof data.nodeId === 'string' && Number.isInteger(data.choiceIndex)
+      ? `choice:${data.nodeId}[${data.choiceIndex}]`
+      : null
+  }
   const specs: Record<string, [string, string]> = {
     story_upsert_node: ['node', 'id'],
     story_upsert_achievement: ['achievement', 'id'],

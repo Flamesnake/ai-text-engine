@@ -6,6 +6,8 @@ describe('evaluateStory 作品评估', () => {
   it('返回结构、互动、机制、演出与 walk 的中立指标', () => {
     const story = makeStory()
     story.nodes.armed.sfx = 'heartbeat'
+    story.meta.soundscape = { name: 'rain', intensity: 'subtle' }
+    story.nodes.armed.soundscape = { name: 'storm', intensity: 'strong' }
     story.nodes.armed.fx = [{ name: 'shake', intensity: 0.4 }]
     const report = evaluateStory(story)
 
@@ -14,7 +16,39 @@ describe('evaluateStory 作品评估', () => {
     expect(report.interaction.conditionalChoices).toBe(1)
     expect(report.performance.walk.unreachableEndings).toEqual([])
     expect(report.presentation.sfxNodes).toBe(1)
+    expect(report.presentation.soundscapeSwitchNodes).toBe(1)
+    expect(report.presentation.soundscapeUsage).toEqual([
+      { name: 'rain', count: 1 },
+      { name: 'storm', count: 1 },
+    ])
     expect(report.presentation.fxNodes).toBe(1)
+  })
+
+  it('统计结构化世界状态的切换、门控与状态声景', () => {
+    const story = makeStory()
+    story.meta.world = {
+      initial: 'surface',
+      states: {
+        surface: {},
+        other: { soundscape: { name: 'void', intensity: 'strong' } },
+      },
+    }
+    story.meta.phase = { initial: 'day', states: { day: {}, night: {} } }
+    story.nodes.start.choices[0].effects = {
+      ...story.nodes.start.choices[0].effects,
+      world: 'other', phase: 'night',
+    }
+    story.nodes.armed.choices[0].when = { op: 'eq', var: '#world', value: 'other' }
+
+    const report = evaluateStory(story)
+    expect(report.presentation.stateAxes).toEqual({
+      worldStates: 2, phaseStates: 2, worldSwitches: 1, phaseSwitches: 1,
+      worldGatedChoices: 1, phaseGatedChoices: 0,
+      worldAppearanceStates: 1, phaseAppearanceStates: 0,
+      gatedChoices: 1,
+    })
+    expect(report.presentation.soundscapeUsage).toContainEqual({ name: 'void', count: 1 })
+    expect(report.findings.map((finding) => finding.code)).not.toContain('UNUSED_WORLD_STATES')
   })
 
   it('统计富文本片段、条件揭示与样式使用', () => {
@@ -147,5 +181,52 @@ describe('evaluateStory 作品评估', () => {
     expect(codes).toContain('REDUNDANT_SYSTEM_SFX')
     expect(codes).toContain('LONG_READING_STRONG_FX')
     expect(codes).toContain('HIGH_INTENSITY_FX')
+  })
+
+  it('提示逐节点重复声明本可持续的声景', () => {
+    const story = makeStory()
+    for (const node of Object.values(story.nodes).slice(0, 4)) {
+      node.soundscape = { name: 'rain', intensity: 'medium' }
+    }
+    const report = evaluateStory(story)
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'REPEATED_SOUNDSCAPE_DECLARATION',
+    }))
+  })
+
+  it('指出汇流选项缺少承接，并统计 response 覆盖', () => {
+    const story = makeStory()
+    story.nodes.start.choices = [
+      { label: '坦白', target: 'armed', response: '你把真话说完。' },
+      { label: '沉默', target: 'armed' },
+    ]
+    const report = evaluateStory(story)
+    expect(report.narrative).toMatchObject({
+      choicesWithResponse: 1,
+      convergingChoiceGroups: 1,
+      convergingGroupsWithoutFullResponse: 1,
+    })
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'CONVERGING_CHOICES_WITHOUT_RESPONSE',
+    }))
+  })
+
+  it('指出只写不读、没有可见表现的 phase 状态', () => {
+    const story = makeStory()
+    story.meta.phase = { initial: 'day', states: { day: {}, night: {} } }
+    story.nodes.start.choices[0].effects = {
+      ...story.nodes.start.choices[0].effects,
+      phase: 'night',
+    }
+    const report = evaluateStory(story)
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'WRITE_ONLY_PHASE_STATE' }))
+  })
+
+  it('提示 world 与 phase 同时拥有基础声景时的覆盖风险', () => {
+    const story = makeStory()
+    story.meta.world = { initial: 'surface', states: { surface: { soundscape: { name: 'waves' } } } }
+    story.meta.phase = { initial: 'day', states: { day: { soundscape: { name: 'wind' } } } }
+    const report = evaluateStory(story)
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'OVERLAPPING_STATE_SOUNDSCAPES' }))
   })
 })

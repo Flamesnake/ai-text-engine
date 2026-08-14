@@ -103,6 +103,8 @@ interface SimState {
   solvedPuzzles: string[]
   violations: string[]
   day: number
+  world: string
+  phase: string
   /** 去重后的已访问节点（与 GameState.visited 语义一致，供 #visited 条件） */
   visited: string[]
 }
@@ -168,7 +170,10 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     vars: {}, inventory: [], docs: [], evidence: [], deductions: [],
     relations: initialRelations, memories: [], revealedSecrets: [],
     solvedPuzzles: [],
-    violations: [], day: 1, visited: [],
+    violations: [], day: 1,
+    world: story.meta.world?.initial ?? 'default',
+    phase: story.meta.phase?.initial ?? 'default',
+    visited: [],
   }
   // visited 只会通过 #visited 条件影响未来行为。状态去重时保留被实际引用的节点，
   // 避免纯参观历史把等价的调查顺序膨胀成 2^n 个状态；求值上下文仍保留完整 visited。
@@ -273,6 +278,8 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
         visited: puzzleState.visited,
         docs: puzzleState.docs,
         day: puzzleState.day,
+        world: puzzleState.world,
+        phase: puzzleState.phase,
         violations: puzzleState.violations,
         evidence: puzzleState.evidence,
         deductions: puzzleState.deductions,
@@ -334,7 +341,8 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
 
     const ctx: ConditionContext = {
       vars: state.vars, inventory: state.inventory, steps: depth, endingId: null,
-      visited: state.visited, docs: state.docs, day: state.day, violations: state.violations,
+      visited: state.visited, docs: state.docs, day: state.day,
+      world: state.world, phase: state.phase, violations: state.violations,
       evidence: state.evidence, deductions: state.deductions, relations: state.relations,
       memories: state.memories, revealedSecrets: state.revealedSecrets,
       solvedPuzzles: state.solvedPuzzles,
@@ -357,6 +365,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
       const ctx: ConditionContext = {
         vars: currentState.vars, inventory: currentState.inventory, steps: depth, endingId: null,
         visited: currentState.visited, docs: currentState.docs, day: currentState.day,
+        world: currentState.world, phase: currentState.phase,
         violations: currentState.violations, evidence: currentState.evidence, deductions: currentState.deductions,
         relations: currentState.relations, memories: currentState.memories,
         revealedSecrets: currentState.revealedSecrets, solvedPuzzles: currentState.solvedPuzzles,
@@ -424,11 +433,13 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
     return variants
   }
 
-  /** 注入关系上下限，并把 EffectTarget 的标量 day 回写到模拟状态。 */
+  /** 注入关系上下限，并把 EffectTarget 的标量状态回写到模拟状态。 */
   function applySimEffects(effects: Parameters<typeof applyEffects>[0], state: SimState): void {
     const target = { ...state, relationLimits }
     applyEffects(effects, target, rand)
     state.day = target.day
+    state.world = target.world ?? state.world
+    state.phase = target.phase ?? state.phase
   }
 
   const coverageComplete = coverageReasons.size === 0
@@ -574,6 +585,8 @@ function cloneState(s: SimState): SimState {
     solvedPuzzles: [...s.solvedPuzzles],
     violations: [...s.violations],
     day: s.day,
+    world: s.world,
+    phase: s.phase,
     visited: [...s.visited],
   }
 }
@@ -597,6 +610,8 @@ function simStateKey(state: SimState, relevantVisitedIds?: ReadonlySet<string>):
     solvedPuzzles: [...state.solvedPuzzles].sort(),
     violations: [...state.violations].sort(),
     day: state.day,
+    world: state.world,
+    phase: state.phase,
     visited: state.visited
       .filter((nodeId) => !relevantVisitedIds || relevantVisitedIds.has(nodeId))
       .sort(),

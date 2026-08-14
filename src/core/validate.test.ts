@@ -100,6 +100,43 @@ describe('validateExperience 非阻断体验校验', () => {
     expect(validate(story)).toEqual([])
   })
 
+  it('校验 world/phase 的初始状态、切换目标与条件引用', () => {
+    const story = makeStory()
+    story.meta.world = { initial: 'missing', states: { surface: {} } }
+    story.meta.phase = { initial: 'day', states: { day: {}, night: {} } }
+    story.nodes.start.choices[0].effects = {
+      ...story.nodes.start.choices[0].effects,
+      world: 'other',
+    }
+    story.nodes.start.choices[1].when = { op: 'eq', var: '#phase', value: 'dawn' }
+
+    const all = validate(story).join('\n')
+    expect(all).toContain('world 初始状态 "missing"')
+    expect(all).toContain('未定义的 world 状态 "other"')
+    expect(all).toContain('未定义的 phase 状态 "dawn"')
+  })
+
+  it('walk 能穿过状态切换与状态门控证明结局可达', () => {
+    const story = makeStory()
+    story.meta.world = { initial: 'surface', states: { surface: {}, other: {} } }
+    story.nodes.start.choices = [{ label: '坠入里世界', target: 'armed', effects: { world: 'other' } }]
+    story.nodes.armed.choices = [{
+      label: '看见出口', target: 'fight',
+      when: { op: 'eq', var: '#world', value: 'other' },
+    }]
+    story.nodes.unarmed.choices = []
+    delete story.nodes.unarmed
+    story.nodes.flee.choices = []
+    delete story.nodes.flee
+    story.nodes.beg.choices = []
+    delete story.nodes.beg
+    story.endings = { e_good: story.endings.e_good }
+
+    const walk = walkAllEndings(story)
+    expect(walk.unreachableEndings).toEqual([])
+    expect(walk.truncated).toBe(false)
+  })
+
   it('提示 anyOf 单元素组误用与真结局绕过核心调查系统', () => {
     const story: Story = {
       meta: { title: '推理体验检查' },

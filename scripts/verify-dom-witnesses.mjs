@@ -1,7 +1,15 @@
 import { Window } from 'happy-dom'
 import { walkStory } from '../dist/mcp/handlers.js'
 import { loadStory } from '../dist/mcp/projects.js'
-import { replayFailureWitnessInDom, replayWitnessInDom } from '../dist/export/witness-replay.js'
+import {
+  replayFailureWitnessInDomAndDestroy,
+  replayWitnessInDomAndDestroy,
+} from '../dist/export/witness-replay.js'
+
+const nativeTimers = {
+  setTimeout: globalThis.setTimeout,
+  clearTimeout: globalThis.clearTimeout,
+}
 
 const title = process.argv[2]
 const maxStates = Number(process.argv[3] ?? 100000)
@@ -26,13 +34,14 @@ if (!title) {
     const root = document.createElement('div')
     document.body.append(root)
     try {
-      const report = replayWitnessInDom(root, story, witness, {
+      const report = await replayWitnessInDomAndDestroy(root, story, witness, {
         saveKey: `verify:dom-witness:${title}:${witness.endingId}`,
         storage: localStorage,
       })
       replayed.push({ ...report, source: witness.source, steps: witness.steps })
     } finally {
       window.close()
+      restoreTimers()
     }
   }
 
@@ -42,12 +51,13 @@ if (!title) {
     const root = document.createElement('div')
     document.body.append(root)
     try {
-      replayedFailures.push(replayFailureWitnessInDom(root, story, witness, {
+      replayedFailures.push(await replayFailureWitnessInDomAndDestroy(root, story, witness, {
         saveKey: `verify:dom-failure:${title}:${witness.kind}:${witness.nodeId}`,
         storage: localStorage,
       }))
     } finally {
       window.close()
+      restoreTimers()
     }
   }
 
@@ -68,6 +78,11 @@ if (!title) {
   }, null, 2))
 
   if (!walk.reachability.allEndingsProven || replayedFailures.length > 0) process.exitCode = 1
+}
+
+function restoreTimers() {
+  globalThis.setTimeout = nativeTimers.setTimeout
+  globalThis.clearTimeout = nativeTimers.clearTimeout
 }
 
 function installDomGlobals(window) {

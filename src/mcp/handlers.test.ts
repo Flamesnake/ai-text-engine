@@ -125,6 +125,16 @@ describe('story_upsert_node / delete_node', () => {
         ...base, fx: [{ name: 'flicker', speed: 4.1 }],
       } as StoryNode,
     })).rejects.toThrow(/speed/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, soundscape: { name: 'custom_mp3', intensity: 'medium' },
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/soundscape|custom_mp3/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, soundscape: { name: 'rain', intensity: 'overwhelming' },
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/intensity|overwhelming/)
   })
 
   it('写入前拒绝未知富文本样式与任意 HTML 字段', async () => {
@@ -278,11 +288,25 @@ describe('story_export', () => {
 describe('story_list / set_meta / delete_project', () => {
   it('列表与元信息更新', async () => {
     await createTestProject()
-    await handlers.setMeta({ title: '测试游戏', subtitle: '新副标题' })
+    await handlers.setMeta({
+      title: '测试游戏', subtitle: '新副标题',
+      soundscape: { name: 'rain', intensity: 'subtle' },
+      world: {
+        initial: 'surface',
+        states: { surface: { label: '表世界' }, other: { theme: 'cyber' } },
+      },
+      phase: {
+        initial: 'day',
+        states: { day: {}, night: { presentation: { typography: 'mono' } } },
+      },
+    })
     const list = (await handlers.listProjects()) as { projects: { title: string }[] }
     expect(list.projects.some((p) => p.title === '测试游戏')).toBe(true)
     const story = await projects.loadStory('测试游戏')
     expect(story.meta.subtitle).toBe('新副标题')
+    expect(story.meta.soundscape).toEqual({ name: 'rain', intensity: 'subtle' })
+    expect(story.meta.world?.initial).toBe('surface')
+    expect(story.meta.phase?.states.night.presentation?.typography).toBe('mono')
   })
 
   it('用一次短配置更新作品视觉表达', async () => {
@@ -362,9 +386,11 @@ describe('story_evaluate', () => {
     await createTestProject()
     const res = (await handlers.evaluateProject('测试游戏')) as {
       ok: boolean
+      evaluationScope: string
       evaluation: { summary: { nodes: number }; findings: unknown[]; score?: number }
     }
     expect(res.ok).toBe(true)
+    expect(res.evaluationScope).toBe('quick_diagnostic')
     expect(res.evaluation.summary.nodes).toBe(2)
     expect(Array.isArray(res.evaluation.findings)).toBe(true)
     expect(res.evaluation.score).toBeUndefined()
@@ -393,6 +419,61 @@ describe('story_upsert_evidence / story_upsert_deduction', () => {
     }
     expect(result.story.evidence?.clock).toEqual(evidence)
     expect(result.story.deductions?.false_alibi).toEqual(deduction)
+  })
+})
+
+describe('增量节点读取 / 转场审查 / 选项补丁', () => {
+  it('读取单个节点及入边，不返回整部 story 包装', async () => {
+    await createTestProject()
+    const result = await handlers.getNode({ title: '测试游戏', nodeId: 'end' }) as {
+      node: StoryNode
+      incoming: Array<{ sourceNodeId: string; choiceIndex: number; label: string; response?: string }>
+      story?: unknown
+    }
+    expect(result.node.id).toBe('end')
+    expect(result.incoming).toEqual([{
+      sourceNodeId: 'start', choiceIndex: 0, label: '看看这个示例结局', response: undefined,
+    }])
+    expect(result.story).toBeUndefined()
+  })
+
+  it('分页审查转场，并用旧值断言安全地局部补充 response', async () => {
+    await createTestProject()
+    const review = await handlers.reviewProjectTransitions({ title: '测试游戏', limit: 1 }) as {
+      review: { items: Array<{ choiceIndex: number; label: string; targetNodeId: string }>; nextCursor: number | null }
+    }
+    expect(review.review.items[0]).toMatchObject({
+      choiceIndex: 0, label: '看看这个示例结局', targetNodeId: 'end',
+    })
+
+    const patched = await handlers.patchChoice({
+      title: '测试游戏', nodeId: 'start', choiceIndex: 0,
+      expectedLabel: '看看这个示例结局', expectedTarget: 'end',
+      patch: { response: '你翻到故事的最后一页。' },
+    }) as { choice: { response?: string }; validatePass: boolean }
+    expect(patched.choice.response).toBe('你翻到故事的最后一页。')
+    expect(patched.validatePass).toBe(true)
+
+    const saved = await handlers.getNode({ title: '测试游戏', nodeId: 'start' }) as { node: StoryNode }
+    expect(saved.node.choices[0].response).toBe('你翻到故事的最后一页。')
+  })
+
+  it('过期断言拒绝误改，并允许 null 删除可选字段', async () => {
+    await createTestProject()
+    await expect(handlers.patchChoice({
+      title: '测试游戏', nodeId: 'start', choiceIndex: 0,
+      expectedLabel: '已经变化的旧文案', patch: { response: '不应写入' },
+    })).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    await handlers.patchChoice({
+      title: '测试游戏', nodeId: 'start', choiceIndex: 0,
+      expectedLabel: '看看这个示例结局', patch: { response: '临时承接' },
+    })
+    const removed = await handlers.patchChoice({
+      title: '测试游戏', nodeId: 'start', choiceIndex: 0,
+      expectedLabel: '看看这个示例结局', patch: { response: null },
+    }) as { choice: { response?: string } }
+    expect(removed.choice).not.toHaveProperty('response')
   })
 })
 

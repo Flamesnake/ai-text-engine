@@ -1,9 +1,10 @@
 import type {
-  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, StoryDocument, StoryNode, ThemeConfig,
+  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, SoundscapeSpec, StateAxisConfig, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
 import { validate, validateExperience } from '../core/validate.js'
 import { evaluateStory } from '../core/evaluate.js'
-import { StrictStoryNodeSchema } from '../core/schema.js'
+import { ChoicePatchSchema, StrictStoryNodeSchema, type ChoicePatch } from '../core/schema.js'
+import { reviewTransitions, type TransitionReviewOptions } from '../core/transition-review.js'
 import { walkAllEndings, type WalkOptions } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
@@ -237,6 +238,9 @@ export async function setMeta(args: {
   theme?: string | ThemeConfig
   hud?: HudStat[]
   presentation?: PresentationConfig
+  soundscape?: SoundscapeSpec
+  world?: StateAxisConfig
+  phase?: StateAxisConfig
 }): Promise<unknown> {
   const story = await projects.loadStory(args.title)
   if (args.subtitle !== undefined) story.meta.subtitle = args.subtitle
@@ -244,13 +248,128 @@ export async function setMeta(args: {
   if (args.theme !== undefined) story.meta.theme = args.theme
   if (args.hud !== undefined) story.meta.hud = args.hud
   if (args.presentation !== undefined) story.meta.presentation = args.presentation
+  if (args.soundscape !== undefined) story.meta.soundscape = args.soundscape
+  if (args.world !== undefined) story.meta.world = args.world
+  if (args.phase !== undefined) story.meta.phase = args.phase
   await projects.saveStory(story)
   return { ok: true, meta: story.meta }
 }
 
-export async function evaluateProject(title: string): Promise<unknown> {
-  const story = await projects.loadStory(title)
-  return { ok: true, title, evaluation: evaluateStory(story) }
+/** 只读取一个节点及其入边，避免为了局部修稿拉取整部 story。 */
+export async function getNode(args: { title: string; nodeId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const node = story.nodes[args.nodeId]
+  if (!node) throw new ProjectError('NOT_FOUND', `节点 "${args.nodeId}" 不存在`)
+  const incoming = Object.values(story.nodes).flatMap((source) => source.choices.flatMap((choice, choiceIndex) =>
+    choice.target === args.nodeId
+      ? [{ sourceNodeId: source.id, choiceIndex, label: choice.label, response: choice.response }]
+      : []))
+  return { ok: true, title: args.title, node, incoming }
+}
+
+export interface ReviewTransitionsArgs extends TransitionReviewOptions {
+  title: string
+}
+
+/** 分页返回紧凑转场上下文，供一次集中连贯性修订。 */
+export async function reviewProjectTransitions(args: ReviewTransitionsArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const { title, ...options } = args
+  const missingNodeIds = (options.nodeIds ?? []).filter((nodeId) => !story.nodes[nodeId])
+  if (missingNodeIds.length > 0) {
+    throw new ProjectError('NOT_FOUND', `找不到节点：${missingNodeIds.join('、')}`)
+  }
+  return { ok: true, title, review: reviewTransitions(story, options) }
+}
+
+export interface PatchChoiceArgs {
+  title: string
+  nodeId: string
+  choiceIndex: number
+  expectedLabel?: string
+  expectedTarget?: string
+  patch: ChoicePatch
+}
+
+/** 局部修改一个选项；可选旧值断言防止节点变化后按过期索引误改。 */
+export async function patchChoice(args: PatchChoiceArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const node = story.nodes[args.nodeId]
+  if (!node) throw new ProjectError('NOT_FOUND', `节点 "${args.nodeId}" 不存在`)
+  if (!Number.isInteger(args.choiceIndex) || args.choiceIndex < 0 || args.choiceIndex >= node.choices.length) {
+    throw new RangeError(`选项索引越界：${args.choiceIndex}（节点 ${args.nodeId} 有 ${node.choices.length} 个选项）`)
+  }
+  const previous = node.choices[args.choiceIndex]
+  if (args.expectedLabel !== undefined && previous.label !== args.expectedLabel) {
+    throw new ProjectError('CONFLICT', `选项 ${args.nodeId}[${args.choiceIndex}] 的 label 已变为「${previous.label}」，拒绝按旧值修改`)
+  }
+  if (args.expectedTarget !== undefined && previous.target !== args.expectedTarget) {
+    throw new ProjectError('CONFLICT', `选项 ${args.nodeId}[${args.choiceIndex}] 的 target 已变为 "${previous.target}"，拒绝按旧值修改`)
+  }
+  const patch = ChoicePatchSchema.parse(args.patch)
+  const next = structuredClone(previous)
+  applyOptionalPatch(next, patch, 'label')
+  applyOptionalPatch(next, patch, 'target')
+  applyNullablePatch(next, patch, 'response')
+  applyNullablePatch(next, patch, 'when')
+  applyNullablePatch(next, patch, 'effects')
+  node.choices[args.choiceIndex] = next
+  // 对局部补丁后的完整节点再次执行严格解析，再进入项目级落盘防线。
+  story.nodes[args.nodeId] = StrictStoryNodeSchema.parse(node)
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true,
+    nodeId: args.nodeId,
+    choiceIndex: args.choiceIndex,
+    previous,
+    choice: story.nodes[args.nodeId].choices[args.choiceIndex],
+    validate: problems,
+    validatePass: problems.length === 0,
+  }
+}
+
+function applyOptionalPatch<K extends 'label' | 'target'>(
+  choice: StoryNode['choices'][number],
+  patch: ChoicePatch,
+  key: K,
+): void {
+  if (patch[key] !== undefined) choice[key] = patch[key]!
+}
+
+function applyNullablePatch<K extends 'response' | 'when' | 'effects'>(
+  choice: StoryNode['choices'][number],
+  patch: ChoicePatch,
+  key: K,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(patch, key)) return
+  const value = patch[key]
+  if (value === null || value === undefined) delete choice[key]
+  else Object.assign(choice, { [key]: value })
+}
+
+export interface EvaluateProjectArgs {
+  title: string
+  /** 体验评估默认使用较小预算；完整可达性证明请调用 story_walk。 */
+  maxStates?: number
+  witnessMaxStates?: number
+}
+
+export async function evaluateProject(args: EvaluateProjectArgs | string): Promise<unknown> {
+  const normalized = typeof args === 'string' ? { title: args } : args
+  const story = await projects.loadStory(normalized.title)
+  const evaluation = evaluateStory(story, {
+    walkOptions: {
+      maxStates: normalized.maxStates ?? 10_000,
+      witnessMaxStates: normalized.witnessMaxStates ?? 5_000,
+    },
+  })
+  return {
+    ok: true,
+    title: normalized.title,
+    evaluationScope: 'quick_diagnostic',
+    evaluation,
+  }
 }
 
 export interface WalkStoryArgs extends Omit<WalkOptions, 'rand' | 'targetEndingId'> {
@@ -494,6 +613,9 @@ export async function deleteProject(title: string): Promise<unknown> {
 export const tools = {
   story_new: newProject,
   story_get: (args: { title: string }) => getStory(args.title),
+  story_get_node: (args: { title: string; nodeId: string }) => getNode(args),
+  story_review_transitions: (args: ReviewTransitionsArgs) => reviewProjectTransitions(args),
+  story_patch_choice: (args: PatchChoiceArgs) => patchChoice(args),
   story_upsert_node: (args: UpsertNodeArgs) => upsertNode(args),
   story_delete_node: (args: DeleteNodeArgs) => deleteNode(args),
   story_delete_ending: (args: { title: string; endingId: string }) => deleteEnding(args),
@@ -511,11 +633,11 @@ export const tools = {
   story_upsert_puzzle: (args: { title: string; puzzle: Puzzle }) => upsertPuzzle(args),
   story_delete_puzzle: (args: { title: string; puzzleId: string }) => deletePuzzle(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
-  story_evaluate: (args: { title: string }) => evaluateProject(args.title),
+  story_evaluate: (args: EvaluateProjectArgs) => evaluateProject(args),
   story_walk: (args: WalkStoryArgs) => walkStory(args),
   story_graph: (args: { title: string }) => graph(args.title),
   story_export: (args: ExportArgs) => exportStory(args),
-  story_set_meta: (args: { title: string; subtitle?: string; author?: string }) => setMeta(args),
+  story_set_meta: (args: { title: string; subtitle?: string; author?: string; soundscape?: SoundscapeSpec; world?: StateAxisConfig; phase?: StateAxisConfig }) => setMeta(args),
   story_set_presentation: (args: { title: string; presentation: PresentationConfig }) => setPresentation(args),
   story_list: () => listProjects(),
   story_delete_project: (args: { title: string }) => deleteProject(args.title),

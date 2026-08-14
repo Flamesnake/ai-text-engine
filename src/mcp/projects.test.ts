@@ -20,7 +20,15 @@ afterEach(async () => {
 })
 
 describe('项目存储深模块', () => {
-  it('AI_TEXT_ENGINE_HOME 显式指定安装包的作品目录', () => {
+  it('TALESPINDLE_HOME 显式指定安装包的作品目录，并优先于旧变量', () => {
+    expect(projects.resolveDefaultProjectsRoot({ TALESPINDLE_HOME: tmp })).toBe(path.join(tmp, 'projects'))
+    expect(projects.resolveDefaultProjectsRoot({
+      TALESPINDLE_HOME: tmp,
+      AI_TEXT_ENGINE_HOME: path.join(tmp, 'legacy'),
+    })).toBe(path.join(tmp, 'projects'))
+  })
+
+  it('AI_TEXT_ENGINE_HOME 作为兼容变量仍然有效', () => {
     expect(projects.resolveDefaultProjectsRoot({ AI_TEXT_ENGINE_HOME: tmp })).toBe(path.join(tmp, 'projects'))
   })
 

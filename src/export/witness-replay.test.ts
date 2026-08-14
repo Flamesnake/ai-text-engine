@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Story } from '../core/types.js'
 import { walkAllEndings } from '../core/walk.js'
-import { DomWitnessReplayError, replayFailureWitnessInDom, replayWitnessInDom } from './witness-replay.js'
+import {
+  DomWitnessReplayError,
+  replayFailureWitnessInDom,
+  replayWitnessInDom,
+  replayWitnessInDomAndDestroy,
+} from './witness-replay.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -9,6 +14,20 @@ afterEach(() => {
 })
 
 describe('replayWitnessInDom', () => {
+  it('异步批量版本在重放后销毁运行时资源', async () => {
+    const story = makeInteractiveStory()
+    const witness = walkAllEndings(story).reachability.witnesses[0]
+    const root = document.createElement('div')
+    document.body.append(root)
+
+    const report = await replayWitnessInDomAndDestroy(root, story, witness, {
+      saveKey: 'test:witness:destroy', storage: localStorage,
+    })
+
+    expect(report.endingId).toBe('e_true')
+    expect(root.childElementCount).toBe(0)
+  })
+
   it('通过真实推理板、谜题输入和场景选项重放结局见证', () => {
     const story = makeInteractiveStory()
     const witness = walkAllEndings(story).reachability.witnesses[0]

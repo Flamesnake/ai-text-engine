@@ -17,16 +17,17 @@ describe('npm CLI commands', () => {
 
   it('按客户端解析 Skill 目录，也支持自定义目标', () => {
     const homeDir = path.join(path.sep, 'home', 'tester')
-    expect(resolveSkillTarget('agents', { homeDir })).toContain(path.join('.agents', 'skills', 'ai-text-engine'))
-    expect(resolveSkillTarget('codex', { homeDir })).toContain(path.join('.codex', 'skills', 'ai-text-engine'))
-    expect(resolveSkillTarget('claude', { homeDir })).toContain(path.join('.claude', 'skills', 'ai-text-engine'))
-    expect(resolveSkillTarget('agents', { target: 'custom-skills', homeDir })).toBe(path.resolve('custom-skills', 'ai-text-engine'))
+    expect(resolveSkillTarget('agents', { homeDir })).toContain(path.join('.agents', 'skills', 'talespindle-author'))
+    expect(resolveSkillTarget('codex', { homeDir })).toContain(path.join('.agents', 'skills', 'talespindle-author'))
+    expect(resolveSkillTarget('agents', { homeDir })).toContain(path.join('.agents', 'skills', 'talespindle-author'))
+    expect(resolveSkillTarget('claude', { homeDir })).toContain(path.join('.claude', 'skills', 'talespindle-author'))
+    expect(resolveSkillTarget('agents', { target: 'custom-skills', homeDir })).toBe(path.resolve('custom-skills', 'talespindle-author'))
   })
 
   it('安装 Skill，默认拒绝静默覆盖并允许显式 force', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'ate-cli-skill-'))
     const first = await installSkill({ target: root })
-    expect(await readFile(path.join(first.destination, 'SKILL.md'), 'utf8')).toContain('ai-text-engine')
+    expect(await readFile(path.join(first.destination, 'SKILL.md'), 'utf8')).toContain('TaleSpindle')
     await expect(installSkill({ target: root })).rejects.toThrow(/--force/)
     await writeFile(path.join(first.destination, 'stale.txt'), 'stale', 'utf8')
     await installSkill({ target: root, force: true })

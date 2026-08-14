@@ -3,7 +3,7 @@ import path from 'node:path'
 import { doctor, initHome, installSkill, type SkillClient } from './cli/commands.js'
 import { setProjectsRoot } from './mcp/projects.js'
 
-const HELP = `ai-text-engine <command> [options]
+const HELP = `talespindle <command> [options]
 
 Commands:
   doctor                         检查预构建运行时、MCP、Skill 与作品目录
@@ -18,7 +18,8 @@ install-skill options:
   --force                        覆盖已安装副本
 
 Environment:
-  AI_TEXT_ENGINE_HOME            数据根目录；作品写入其 projects/ 子目录
+  TALESPINDLE_HOME               数据根目录；作品写入其 projects/ 子目录
+  AI_TEXT_ENGINE_HOME            旧名称，仍兼容
 `
 
 async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -36,7 +37,7 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   if (command === 'doctor') {
     const result = await doctor({ home })
-    process.stdout.write(`ai-text-engine ${result.version} · Node ${result.node}\n`)
+    process.stdout.write(`TaleSpindle ${result.version} · Node ${result.node}\n`)
     for (const check of result.checks) {
       process.stdout.write(`${check.ok ? 'OK' : 'FAIL'} ${check.name}${check.path ? `: ${check.path}` : ''}${check.message ? ` (${check.message})` : ''}\n`)
     }
@@ -81,6 +82,6 @@ function optionValue(argv: string[], name: string): string | undefined {
 main().then((code) => {
   process.exitCode = code
 }).catch((error) => {
-  process.stderr.write(`ai-text-engine: ${error instanceof Error ? error.message : String(error)}\n`)
+  process.stderr.write(`talespindle: ${error instanceof Error ? error.message : String(error)}\n`)
   process.exitCode = 1
 })

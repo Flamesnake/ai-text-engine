@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountTextAdventure } from './runtime.js'
+import { mountTextAdventure, resolveSoundscapeForHistory } from './runtime.js'
 import { makeStory } from '../core/fixtures.js'
 
 /** 内存版 Storage（用于注入，避免污染真实 localStorage） */
@@ -18,6 +18,39 @@ function memoryStorage(): { storage: Storage; map: Map<string, string> } {
   return { storage, map }
 }
 
+describe('持续声景状态恢复', () => {
+  it('未声明节点沿用最近切换，silence 显式结束，后续可重新开始', () => {
+    const story = makeStory()
+    story.meta.soundscape = { name: 'rain', intensity: 'subtle' }
+    story.nodes.armed.soundscape = { name: 'storm', intensity: 'strong' }
+    story.nodes.unarmed.soundscape = 'silence'
+    story.nodes.fight.soundscape = { name: 'void' }
+
+    expect(resolveSoundscapeForHistory(story, ['start'])).toEqual({ name: 'rain', intensity: 'subtle' })
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'beg'])).toEqual({
+      name: 'storm', intensity: 'strong',
+    })
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'unarmed'])).toBeNull()
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'unarmed', 'fight'])).toEqual({ name: 'void' })
+  })
+
+  it('world/phase 声景覆盖持久声景，当前节点声明拥有最高优先级', () => {
+    const story = makeStory()
+    story.meta.soundscape = { name: 'rain' }
+    story.meta.world = {
+      initial: 'surface',
+      states: { surface: {}, other: { soundscape: { name: 'void', intensity: 'strong' } } },
+    }
+    story.meta.phase = {
+      initial: 'day',
+      states: { day: {}, night: { soundscape: { name: 'electric' } } },
+    }
+    expect(resolveSoundscapeForHistory(story, ['start'], 'other', 'night')).toEqual({ name: 'electric' })
+    story.nodes.start.soundscape = { name: 'storm' }
+    expect(resolveSoundscapeForHistory(story, ['start'], 'other', 'night')).toEqual({ name: 'storm' })
+  })
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
 })
@@ -32,6 +65,24 @@ describe('mountTextAdventure 运行时集成', () => {
 
     await mounted.destroy()
     expect(root.childElementCount).toBe(0)
+  })
+
+  it('在目标正文前显示选择承接，并在继续存档后恢复', () => {
+    const story = makeStory()
+    story.nodes.start.choices[0].response = '你握住剑柄。勇气变成 {courage}。'
+    const { storage } = memoryStorage()
+    const firstRoot = document.createElement('div')
+    document.body.append(firstRoot)
+    mountTextAdventure(firstRoot, story, { saveKey: 'test:choice-response', storage })
+    ;(firstRoot.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(firstRoot.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(firstRoot.querySelector('[data-choice-response]')?.textContent).toBe('你握住剑柄。勇气变成 8。')
+
+    const restoredRoot = document.createElement('div')
+    document.body.append(restoredRoot)
+    mountTextAdventure(restoredRoot, story, { saveKey: 'test:choice-response', storage })
+    ;(restoredRoot.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
+    expect(restoredRoot.querySelector('[data-choice-response]')?.textContent).toBe('你握住剑柄。勇气变成 8。')
   })
 
   it('应用全局视觉外壳与设计令牌，并允许节点只覆盖差异项', () => {
@@ -62,6 +113,38 @@ describe('mountTextAdventure 运行时集成', () => {
     for (const cls of ['shell-cinematic', 'type-mono', 'density-spacious', 'shape-sharp', 'choice-commands']) {
       expect(nodeClasses.contains(cls)).toBe(true)
     }
+  })
+
+  it('状态切换同步改变主题、视觉配方与 DOM 状态标记', () => {
+    const story = makeStory()
+    story.meta.world = {
+      initial: 'surface',
+      states: {
+        surface: { theme: 'dark' },
+        other: { theme: 'cyber', presentation: { shell: 'chat' } },
+      },
+    }
+    story.meta.phase = {
+      initial: 'day',
+      states: { day: {}, night: { presentation: { shape: 'round' } } },
+    }
+    story.nodes.start.choices[0].effects = {
+      ...story.nodes.start.choices[0].effects,
+      world: 'other', phase: 'night',
+    }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:world-state', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+
+    const main = root.querySelector<HTMLElement>('.game-screen')!
+    expect(main.dataset).toMatchObject({ world: 'other', phase: 'night' })
+    expect(main.classList.contains('shell-chat')).toBe(true)
+    expect(main.classList.contains('shape-round')).toBe(true)
+    expect(main.classList.contains('state-transition')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#00e5ff')
   })
 
   it.each(['novel', 'dossier', 'chat', 'cinematic'] as const)(

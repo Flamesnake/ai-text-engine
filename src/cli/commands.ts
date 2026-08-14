@@ -79,14 +79,12 @@ export function resolveSkillTarget(
   client: SkillClient,
   options: { target?: string; homeDir?: string } = {},
 ): string {
-  if (options.target?.trim()) return path.join(path.resolve(options.target), 'ai-text-engine')
+  if (options.target?.trim()) return path.join(path.resolve(options.target), 'talespindle-author')
   const homeDir = options.homeDir ?? os.homedir()
-  const skillsRoot = client === 'codex'
-    ? path.join(homeDir, '.codex', 'skills')
-    : client === 'claude'
+  const skillsRoot = client === 'claude'
       ? path.join(homeDir, '.claude', 'skills')
       : path.join(homeDir, '.agents', 'skills')
-  return path.join(skillsRoot, 'ai-text-engine')
+  return path.join(skillsRoot, 'talespindle-author')
 }
 
 export async function installSkill(options: {

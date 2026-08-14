@@ -53,7 +53,7 @@ setTimeout(() => {
   console.log('serverInfo:', JSON.stringify(serverInfo))
   console.log('tool count:', tools.length)
   console.log('tools:', tools.map((t) => t.name).join(', '))
-  const ok = tools.length >= 10 && serverInfo?.name === 'ai-text-engine'
+  const ok = tools.length >= 10 && serverInfo?.name === 'talespindle'
   console.log(ok ? 'VERIFY OK' : 'VERIFY FAIL')
   child.kill()
   process.exit(ok ? 0 : 1)

@@ -1,6 +1,6 @@
 import type { Story } from '../core/types.js'
 import type { EndingWitness, FailureWitness, WalkAction } from '../core/walk.js'
-import { mountTextAdventure, type MountOptions } from './runtime.js'
+import { mountTextAdventure, type MountedTextAdventure, type MountOptions } from './runtime.js'
 
 export interface DomWitnessReplayReport {
   endingId: string
@@ -66,7 +66,31 @@ export function replayWitnessInDom(
   witness: EndingWitness,
   options?: MountOptions,
 ): DomWitnessReplayReport {
-  const report = replayActionsInDom(root, story, witness, options)
+  prepareReplay(root, story, witness, options)
+  const report = replayActionsInDom(root, story, witness)
+  return finishEndingReplay(root, witness, report)
+}
+
+/** 与同步 API 等价，并在成功或失败后显式释放动画、音频与 DOM 资源。 */
+export async function replayWitnessInDomAndDestroy(
+  root: HTMLElement,
+  story: Story,
+  witness: EndingWitness,
+  options?: MountOptions,
+): Promise<DomWitnessReplayReport> {
+  const mounted = prepareReplay(root, story, witness, options)
+  try {
+    return finishEndingReplay(root, witness, replayActionsInDom(root, story, witness))
+  } finally {
+    await mounted.destroy()
+  }
+}
+
+function finishEndingReplay(
+  root: HTMLElement,
+  witness: EndingWitness,
+  report: ActionReplayReport,
+): DomWitnessReplayReport {
   const endingId = root.querySelector<HTMLElement>('[data-ending-id]')?.dataset.endingId
   if (endingId !== witness.endingId) {
     fail(root, witness, witness.actions.length, undefined, `重放结束于 ${endingId ?? '非结局页面'}`)
@@ -81,7 +105,30 @@ export function replayFailureWitnessInDom(
   witness: FailureWitness,
   options?: MountOptions,
 ): DomFailureWitnessReplayReport {
-  const report = replayActionsInDom(root, story, witness, options)
+  prepareReplay(root, story, witness, options)
+  return finishFailureReplay(root, witness, replayActionsInDom(root, story, witness))
+}
+
+/** 失败路径的自动清理版本，供批量 happy-dom 验收脚本使用。 */
+export async function replayFailureWitnessInDomAndDestroy(
+  root: HTMLElement,
+  story: Story,
+  witness: FailureWitness,
+  options?: MountOptions,
+): Promise<DomFailureWitnessReplayReport> {
+  const mounted = prepareReplay(root, story, witness, options)
+  try {
+    return finishFailureReplay(root, witness, replayActionsInDom(root, story, witness))
+  } finally {
+    await mounted.destroy()
+  }
+}
+
+function finishFailureReplay(
+  root: HTMLElement,
+  witness: FailureWitness,
+  report: ActionReplayReport,
+): DomFailureWitnessReplayReport {
   const nodeId = root.querySelector<HTMLElement>('[data-node-id]')?.dataset.nodeId
   if (nodeId !== witness.nodeId) {
     fail(root, witness, witness.actions.length, undefined, `重放结束于节点 ${nodeId ?? '未知'}，预期 ${witness.nodeId}`)
@@ -109,21 +156,28 @@ export function replayFailureWitnessInDom(
   return { kind: witness.kind, nodeId: witness.nodeId, ...report }
 }
 
-function replayActionsInDom(
+function prepareReplay(
   root: HTMLElement,
   story: Story,
   witness: ReplayableWitness,
   options?: MountOptions,
-): ActionReplayReport {
+): MountedTextAdventure {
   const storage = options?.storage ?? window.localStorage
   const saveKey = options?.saveKey ?? `ate:witness:${story.meta.title}:${witnessLabel(witness)}`
   storage.removeItem(saveKey)
-  mountTextAdventure(root, story, { storage, saveKey })
+  const mounted = mountTextAdventure(root, story, { storage, saveKey })
 
   const start = root.querySelector<HTMLElement>('[data-action="start"]')
   if (!start) fail(root, witness, -1, undefined, '找不到开始游戏按钮')
   start.click()
+  return mounted
+}
 
+function replayActionsInDom(
+  root: HTMLElement,
+  story: Story,
+  witness: ReplayableWitness,
+): ActionReplayReport {
   const report: ActionReplayReport = {
     actions: witness.actions.length,
     choices: 0,

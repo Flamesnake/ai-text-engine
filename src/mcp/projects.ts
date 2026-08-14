@@ -22,10 +22,11 @@ const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 
 /**
  * 本地源码仓库继续使用仓库内 projects；预构建安装包默认写入用户数据目录。
- * AI_TEXT_ENGINE_HOME 指向产品数据根目录（其下自动使用 projects/）。
+ * TALESPINDLE_HOME 指向产品数据根目录（其下自动使用 projects/）。
+ * AI_TEXT_ENGINE_HOME 是发布前名称，保留为兼容回退。
  */
 export function resolveDefaultProjectsRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const configuredHome = env.AI_TEXT_ENGINE_HOME?.trim()
+  const configuredHome = env.TALESPINDLE_HOME?.trim() || env.AI_TEXT_ENGINE_HOME?.trim()
   if (configuredHome) return path.join(path.resolve(configuredHome), 'projects')
   if (existsSync(path.join(PACKAGE_ROOT, 'src'))) return path.join(PACKAGE_ROOT, 'projects')
 
@@ -34,7 +35,7 @@ export function resolveDefaultProjectsRoot(env: NodeJS.ProcessEnv = process.env)
     : process.platform === 'darwin'
       ? path.join(os.homedir(), 'Library', 'Application Support')
       : (env.XDG_DATA_HOME?.trim() || path.join(os.homedir(), '.local', 'share'))
-  return path.join(path.resolve(dataHome), 'ai-text-engine', 'projects')
+  return path.join(path.resolve(dataHome), 'talespindle', 'projects')
 }
 
 /** projects 根目录（可被测试覆盖） */

@@ -159,6 +159,60 @@ export function validate(story: Story): string[] {
     }
   }
 
+  // 世界/阶段状态：initial、效果目标与条件引用必须共享同一组 id。
+  const stateIds = {
+    world: new Set(Object.keys(story.meta.world?.states ?? { default: {} })),
+    phase: new Set(Object.keys(story.meta.phase?.states ?? { default: {} })),
+  }
+  for (const axis of ['world', 'phase'] as const) {
+    const config = story.meta[axis]
+    if (config && !stateIds[axis].has(config.initial)) {
+      problems.push(`${axis} 初始状态 "${config.initial}" 未在 meta.${axis}.states 中定义`)
+    }
+  }
+  const effectEntries: Array<{ effects: Effects | undefined; location: string }> = []
+  const conditionEntries: Array<{ condition: Condition | undefined; location: string }> = []
+  for (const node of Object.values(story.nodes)) {
+    effectEntries.push({ effects: node.onEnter, location: `节点 "${node.id}" onEnter` })
+    for (const choice of node.choices) {
+      effectEntries.push({ effects: choice.effects, location: `节点 "${node.id}" 选项「${choice.label}」` })
+      conditionEntries.push({ condition: choice.when, location: `节点 "${node.id}" 选项「${choice.label}」` })
+    }
+    for (const [blockIndex, block] of (node.blocks ?? []).entries()) {
+      for (const [segmentIndex, segment] of (block.segments ?? []).entries()) {
+        conditionEntries.push({
+          condition: segment.revealWhen,
+          location: `节点 "${node.id}" 第 ${blockIndex + 1} 个文本块第 ${segmentIndex + 1} 个片段`,
+        })
+      }
+    }
+  }
+  for (const [id, deduction] of Object.entries(story.deductions ?? {})) {
+    effectEntries.push({ effects: deduction.onConfirmed, location: `推论 "${id}"` })
+  }
+  for (const [id, puzzle] of Object.entries(story.puzzles ?? {})) {
+    effectEntries.push({ effects: puzzle.onSolved, location: `谜题 "${id}"` })
+    conditionEntries.push({ condition: puzzle.requires, location: `谜题 "${id}"` })
+  }
+  for (const achievement of story.achievements ?? []) {
+    conditionEntries.push({ condition: achievement.when, location: `成就 "${achievement.id}"` })
+  }
+  for (const { effects, location } of effectEntries) {
+    for (const axis of ['world', 'phase'] as const) {
+      const target = effects?.[axis]
+      if (target !== undefined && !stateIds[axis].has(target)) {
+        problems.push(`${location} 切换到未定义的 ${axis} 状态 "${target}"`)
+      }
+    }
+  }
+  for (const { condition, location } of conditionEntries) {
+    for (const axis of ['world', 'phase'] as const) {
+      for (const ref of collectSpecialRefs(condition, `#${axis}`)) {
+        if (!stateIds[axis].has(ref)) problems.push(`${location} 的条件引用了未定义的 ${axis} 状态 "${ref}"`)
+      }
+    }
+  }
+
   // 结局表孤儿条目
   for (const endId of Object.keys(story.endings)) {
     const used = Object.values(story.nodes).some((n) => n.ending?.id === endId)

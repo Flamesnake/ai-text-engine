@@ -1,9 +1,8 @@
 {
-  "name": "ai-text-engine",
-  "private": true,
-  "version": "0.1.0",
+  "name": "@marianaj/talespindle",
+  "version": "0.2.0",
   "type": "module",
-  "description": "给 AI 用的文字冒险引擎 + MCP 服务器：AI 通过 MCP 工具创建剧情、校验、导出单文件 HTML 游戏",
+  "description": "Agent-first interactive narrative engine with MCP tools, validation, and single-file HTML export",
   "license": "MIT",
   "keywords": [
     "mcp",
@@ -23,11 +22,14 @@
   "files": [
     "dist",
     "skill",
+    "docs/world-state.md",
+    "docs/narrative-quality.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "bin": {
+    "talespindle": "dist/cli.js",
     "ai-text-engine": "dist/cli.js"
   },
   "exports": {

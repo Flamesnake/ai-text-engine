@@ -1,7 +1,7 @@
-# ai-text-engine · 给 AI 用的文字冒险引擎 + MCP 服务器
+# TaleSpindle
 
-让 AI（Claude / Cursor / 任何支持 MCP 的 agent）通过 **MCP 工具**创建、编辑、校验并导出
-**单文件 HTML 文字冒险游戏**的引擎。
+An agent-first interactive narrative engine. TaleSpindle lets Claude, Codex, Cursor, and other
+MCP-capable agents create, validate, test, and export **self-contained HTML text adventures**.
 
 - **剧情 = 纯 JSON 数据**：AI 用工具增删节点，无需写代码；
 - **通用机制**：变量 / 道具 / 旗标 / 条件选项 / 节点进入效果，够做悬疑、RPG、怪谈等题材；
@@ -10,83 +10,94 @@
 - **推理与演出**：内置证据、推论、谜题、人物关系、受控富文本和轻量声画效果；
 - **宿主无关**：核心是普通 Node.js + MCP 服务，未来可以通过薄适配层接入不同 Agent Harness。
 
-## 安装与分发状态
+设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md)
 
-当前版本仍采用**源码安装**，尚未发布到 npm，也没有要求用户安装 DeepSeek Harness。仓库已经具备可安装 tarball、统一 CLI 和空环境验收；正式发布前仍保持 `private: true`，待确认 npm 包名和所有者后再开放。未来另行提供可选的 DSH 薄适配包。
+## 安装
 
-`projects/` 是本地创作区，已被 Git 整体忽略：其中的 `story.json`、导出 HTML 和个人作品不会随源码仓库提交，也不会进入未来的 npm 包。仓库只保留明确设计为公开测试夹具的 `examples/` 和构建样板。发布前还会通过 npm `files` 白名单只打包运行时、CLI、Skill 和必要文档。
+正式 npm 包名为 `@marianaj/talespindle`。普通用户不需要 clone 仓库、运行构建，也不需要安装 DeepSeek Harness；只需 Node.js 20+ 和一个支持 stdio MCP 的 Agent 客户端。
 
-## 快速开始
-
-> 配套 AI skill 源文件位于 `skill/SKILL.md`。客户端实际加载的通常是用户技能目录中的已安装副本；修改仓库源文件后需要重新同步/安装，不能假定两者自动一致。
+### Codex：三步安装
 
 ```bash
-npm install          # 安装依赖
-npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 运行 vitest 测试
-npm run mcp          # 以 stdio 方式启动 MCP 服务器
-npm run check:release # 发布前：构建 + 测试 + MCP 握手 + 项目语料校验
-npm run check:package # 构建 tarball，在空目录安装并验证 CLI/MCP/导出
+# 1. 检查 Node、数据目录、预构建运行时和 MCP
+npx -y @marianaj/talespindle@latest doctor
+
+# 2. 安装配套创作 Skill
+npx -y @marianaj/talespindle@latest install-skill --client codex
+
+# 3. 把 npm 包持久注册为 Codex MCP server
+codex mcp add talespindle -- npx -y @marianaj/talespindle@latest mcp
 ```
 
-> `npm run check:release` 会读取本机 `projects/` 做兼容性回归，但不会复制、修改或上传作品。
+完成后重启或刷新 Codex，在新任务中检查是否出现 `story_new`、`story_validate`、`story_export` 等 `story_` 工具。Skill 可见但没有这些工具，说明 MCP 尚未连接。
 
-### 本地 CLI
-
-构建后可先用与未来 npm 包相同的入口：
+升级时无需重新注册 MCP；重新安装 Skill 即可同步新版创作流程：
 
 ```bash
-node dist/cli.js doctor
-node dist/cli.js init --home C:/path/to/ai-text-engine-data
-node dist/cli.js install-skill --client codex
-node dist/cli.js mcp --home C:/path/to/ai-text-engine-data
+npx -y @marianaj/talespindle@latest doctor
+npx -y @marianaj/talespindle@latest install-skill --client codex --force
 ```
 
-`AI_TEXT_ENGINE_HOME` 也可指定数据根目录，作品写入其 `projects/` 子目录。源码仓库在未设置该变量时继续使用仓库内的 `projects/`；未来 npm 安装包默认使用操作系统用户数据目录，不会把作品写进 `node_modules`。
+Codex 与通用 Agent Skill 默认安装到 `~/.agents/skills/talespindle-author`。`install-skill` 也支持 `--client agents` 和 `--client claude`；已有同名 Skill 时，只有显式传入 `--force` 才会覆盖。
 
-`install-skill` 支持 `agents`、`codex`、`claude`；已有同名 Skill 时默认拒绝覆盖，确认更新需显式增加 `--force`。正式发布后的目标命令形态是 `npx -y <最终包名> doctor|mcp|install-skill`，当前不要使用尚未发布的包名。
+### 其他 MCP 客户端
 
-### 注册到 AI 客户端
-
-在 AI 客户端的 MCP 配置中注册本服务器。不同客户端读取的配置位置不同，仓库根目录的 `.mcp.json` **不能证明 Codex 已经注册该服务器**。
-
-#### Codex / ChatGPT 桌面端
-
-Codex 默认读取用户级 `~/.codex/config.toml`，可信项目也可以使用项目内 `.codex/config.toml`。最稳妥的注册方式是：
-
-```bash
-codex mcp add ai-text-engine -- node E:/GAMER/wzkb/ai-text-engine/dist/cli.js mcp
-```
-
-也可以在设置中的 **MCP servers → Add server** 添加同一条 STDIO 命令，或在 `config.toml` 中写入：
-
-```toml
-[mcp_servers."ai-text-engine"]
-command = "node"
-args = ["E:/GAMER/wzkb/ai-text-engine/dist/cli.js", "mcp"]
-enabled = true
-```
-
-保存后选择 Restart，或完全退出并重新打开客户端；在任务中用 `/mcp` 检查连接状态。
-
-#### 其他 MCP 客户端
-
-Claude Desktop、Cursor 等使用 JSON 配置的客户端可采用：
+Claude Desktop、Cursor 等使用 JSON 配置的客户端可注册同一条 npm 命令：
 
 ```json
 {
   "mcpServers": {
-    "ai-text-engine": {
-      "command": "node",
-      "args": ["C:/path/to/ai-text-engine/dist/cli.js", "mcp"]
+    "talespindle": {
+      "command": "npx",
+      "args": ["-y", "@marianaj/talespindle@latest", "mcp"]
     }
   }
 }
 ```
 
-> 把示例路径换成你 clone 后的实际路径（Windows 用正斜杠或转义反斜杠）。
+使用 TOML 配置的客户端可采用：
 
-注册前先执行 `npm run build`，并用 `node dist/cli.js doctor` 检查预构建运行时、MCP、Skill 与数据目录；修改 MCP 配置后通常需要重启或刷新客户端会话。Skill 已加载但看不到 `story_` 工具时，说明 MCP 并未连接。
+```toml
+[mcp_servers."talespindle"]
+command = "npx"
+args = ["-y", "@marianaj/talespindle@latest", "mcp"]
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 360
+```
+
+不同客户端读取的配置位置不同；仓库根目录的 `.mcp.json` 不能证明客户端已经注册服务器。已有的 `ai-text-engine` MCP 键名和 CLI 别名仍兼容，但新安装统一使用 `talespindle`。
+
+### 作品目录
+
+npm 版本默认把作品写到操作系统用户数据目录，不会写进 `node_modules`。设置 `TALESPINDLE_HOME` 可指定数据根目录，作品位于其 `projects/` 子目录；旧变量 `AI_TEXT_ENGINE_HOME` 仍兼容。
+
+```bash
+npx -y @marianaj/talespindle@latest init --home C:/path/to/talespindle-data
+```
+
+仓库自身的 `projects/` 是开发者本地创作区，已被 Git 整体忽略；其中的 `story.json`、导出 HTML 和个人作品不会进入源码提交或 npm 包。
+
+## 从源码开发
+
+```bash
+npm install
+npm run build
+npm test
+npm run mcp
+npm run check:release
+npm run check:package
+```
+
+构建后也可直接使用本地 CLI：
+
+```bash
+node dist/cli.js doctor
+node dist/cli.js install-skill --client codex
+codex mcp add talespindle-local -- node E:/path/to/ai-text-engine/dist/cli.js mcp
+```
+
+配套 Skill 源文件位于 `skill/SKILL.md`。客户端加载的是已安装副本；修改 Skill 源文件后需要重新运行 `install-skill --force`。`npm run check:release` 会读取本机 `projects/` 做兼容性回归，但不会复制、修改或上传作品。
 
 ### 验证
 
@@ -113,6 +124,9 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 |---|---|
 | `story_new` | 创建项目（写 `projects/<标题>/story.json` 骨架）；已存在则复用 |
 | `story_get` | 读取整个剧情 JSON |
+| `story_get_node` | 读取单个节点及其入边，避免局部修稿时全量读取 |
+| `story_review_transitions` | 分页返回源末段、选项承接和目标首段，用于连续性审查 |
+| `story_patch_choice` | 只修改一个选项；可断言旧 label/target 防止按过期索引误改 |
 | `story_upsert_node` | 创建/覆盖节点（结局自动登记到结局表） |
 | `story_delete_node` | 删除节点（有引用时需 `force: true`，会报告断链） |
 | `story_delete_ending` | 从结局表删除结局（被节点使用时拒绝） |
@@ -127,7 +141,7 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 | `story_walk` | 结局见证与覆盖诊断（可重放路径 / 预算占用 / 热点节点；可调 `maxStates` 等参数） |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
 | `story_export` | 导出单文件 HTML（校验不通过时拒绝） |
-| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** |
+| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** / **初始持续声景** |
 | `story_set_presentation` | 设置 `novel/dossier/chat/cinematic` 外壳与字体、密度、形状、选项风格 |
 | `story_list` | 列出所有项目 |
 | `story_delete_project` | 删除整个项目 |
@@ -151,7 +165,7 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 [`docs/evals/evaluation-baseline.md`](docs/evals/evaluation-baseline.md)。
 
 盲测前调用 `story_observability_reset {}`，完成后调用 `story_observability {}`，可得到本次 MCP
-进程内的调用次数、失败、请求/响应字节、粗略 token、耗时、全量读取、walk、导出和重复覆盖摘要。
+进程内的调用次数、失败、请求/响应字节、粗略 token、耗时、全量/单节点读取、转场审查、walk、导出和重复覆盖摘要。
 摘要只保留聚合数字与资源 id，不记录剧情正文，也不等同于模型平台账单。
 
 ## 剧情数据格式
@@ -170,6 +184,7 @@ interface StoryNode {
   choices: Choice[]               // 空数组 = 结局节点（必须带 ending）
   ending?: EndingMeta             // { id, title, kind: 'good'|'bad'|'true'|'hidden' }
   onEnter?: Effects               // 进入本节点时生效
+  soundscape?: SoundscapeSpec | 'silence' // 持续声景切换点；未声明则沿用
   tags?: string[]                 // 仅供 AI/作者管理，不影响游戏
   note?: string                   // 设计备注，不进入游戏
 }
@@ -243,6 +258,51 @@ interface Condition {
   `speed` 频率倍率范围 `0.25..4`（2=快一倍，0.5=慢一倍），默认 1（即原版参数）；越界值在写入时拒绝；
 - 例如「不稳定的灯」：`"fx": [{ "name": "unstable", "intensity": 0.6, "speed": 1 }]`（大部分时间正常，随机 2-5 秒触发一次连闪两三下，再安静一阵）；
 - 尊重系统「减弱动态效果」设置。
+
+### 持续声景
+
+`sfx` 是一次性事件，`soundscape` 是跨节点持续的环境声。初始声景可用
+`story_set_meta { soundscape }` 设置；节点只在声音发生变化时声明，后续未声明节点自动沿用，
+用 `"soundscape": "silence"` 淡出到寂静。切换采用固定交叉淡化，不开放任意音符、频率或音频文件。
+
+```jsonc
+{ "name": "rain", "intensity": "subtle" }
+```
+
+可用声景：`rain`、`wind`、`storm`、`waves`、`broadcast`、`electric`、`ventilation`、
+`engine`、`void`；强度为 `subtle`、`medium`、`strong`。静音会立即影响短音效和持续声景，
+关闭游戏时共享 AudioContext 与所有持续声音都会释放。
+
+### 世界状态与阶段
+
+`meta.world` 表示表世界/里世界等叙事位面，`meta.phase` 表示白天/夜晚、正常/警报等阶段。
+二者使用相同的紧凑结构，可覆盖主题、视觉配方和持续声景；选项逻辑继续显式使用
+`{ "op": "eq", "var": "#world", "value": "other" }` 或 `#phase`，不要藏进 CSS。
+
+```jsonc
+{
+  "world": {
+    "initial": "surface",
+    "states": {
+      "surface": { "label": "表世界", "theme": "paper" },
+      "other": {
+        "label": "里世界",
+        "theme": "cyber",
+        "presentation": { "shell": "cinematic", "typography": "mono" },
+        "soundscape": { "name": "void", "intensity": "strong" }
+      }
+    }
+  },
+  "phase": {
+    "initial": "day",
+    "states": { "day": {}, "night": { "soundscape": { "name": "wind" } } }
+  }
+}
+```
+
+用节点 `onEnter` 或选项 `effects` 中的 `world: "other"`、`phase: "night"` 切换。
+状态会进入存档和 walk 状态键；恢复存档时主题、排版、声景与可见选项同步恢复。完整契约见
+[`docs/world-state.md`](docs/world-state.md)。
 
 ## 受控富文本
 

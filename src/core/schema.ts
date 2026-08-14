@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SFX_NAMES } from './types.js'
+import { SFX_NAMES, SOUNDSCAPE_NAMES } from './types.js'
 import type {
   Achievement,
   Choice,
@@ -8,6 +8,7 @@ import type {
   Evidence,
   Deduction,
   Character,
+  ChoiceTrace,
   Puzzle,
   PresentationConfig,
   EndingMeta,
@@ -95,6 +96,8 @@ export const EffectsSchema: z.ZodType<Effects> = z.object({
   rand: z.array(z.object({ var: z.string(), min: z.number(), max: z.number() })).optional(),
   violation: z.array(z.string()).optional(),
   day: z.number().optional(),
+  world: z.string().min(1).optional(),
+  phase: z.string().min(1).optional(),
   gain: z.array(z.string()).optional(),
   lose: z.array(z.string()).optional(),
   gainDocs: z.array(z.string()).optional(),
@@ -190,11 +193,52 @@ export const FxSpecSchema = z.object({
 
 export const FxItemSchema: z.ZodType<FxItem> = z.union([z.enum(FX_NAMES), FxSpecSchema])
 
+export const SoundscapeSpecSchema = z.object({
+  name: z.enum(SOUNDSCAPE_NAMES),
+  intensity: z.enum(['subtle', 'medium', 'strong']).optional(),
+}).strict()
+
+export const StateAppearanceSchema = z.object({
+  label: z.string().optional(),
+  theme: z.union([z.string(), ThemeConfigSchema]).optional(),
+  presentation: PresentationConfigSchema.optional(),
+  soundscape: z.union([SoundscapeSpecSchema, z.literal('silence')]).optional(),
+}).strict()
+
+export const StateAxisConfigSchema = z.object({
+  initial: z.string().min(1),
+  states: z.record(z.string(), StateAppearanceSchema),
+}).strict()
+
 export const ChoiceSchema: z.ZodType<Choice> = z.object({
   label: z.string(),
+  response: z.string().optional(),
   target: z.string(),
   when: ConditionSchema.optional(),
   effects: EffectsSchema.optional(),
+})
+
+export interface ChoicePatch {
+  label?: string
+  response?: string | null
+  target?: string
+  when?: Condition | null
+  effects?: Effects | null
+}
+
+export const ChoicePatchSchema: z.ZodType<ChoicePatch> = z.object({
+  label: z.string().min(1).optional(),
+  response: z.string().nullable().optional(),
+  target: z.string().min(1).optional(),
+  when: ConditionSchema.nullable().optional(),
+  effects: EffectsSchema.nullable().optional(),
+}).strict().refine((patch) => Object.keys(patch).length > 0, 'patch 至少包含一个字段')
+
+export const ChoiceTraceSchema: z.ZodType<ChoiceTrace> = z.object({
+  fromNodeId: z.string(),
+  targetNodeId: z.string(),
+  label: z.string(),
+  response: z.string().optional(),
 })
 
 export const EndingMetaSchema: z.ZodType<EndingMeta> = z.object({
@@ -209,6 +253,7 @@ export const StoryNodeSchema = z.object({
   text: z.string(),
   blocks: z.array(TextBlockSchema).optional(),
   sfx: z.enum(SFX_NAMES).optional(),
+  soundscape: z.union([SoundscapeSpecSchema, z.literal('silence')]).optional(),
   fx: z.array(FxItemSchema).optional(),
   presentation: PresentationConfigSchema.optional(),
   choices: z.array(ChoiceSchema),
@@ -240,6 +285,9 @@ export const StoryMetaSchema: z.ZodType<StoryMeta> = z.object({
   author: z.string().optional(),
   theme: z.union([z.string(), ThemeConfigSchema]).optional(),
   presentation: PresentationConfigSchema.optional(),
+  soundscape: SoundscapeSpecSchema.optional(),
+  world: StateAxisConfigSchema.optional(),
+  phase: StateAxisConfigSchema.optional(),
   hud: z.array(HudStatSchema).optional(),
 })
 
@@ -258,6 +306,7 @@ export const StorySchema: z.ZodType<Story> = z.object({
 
 export const GameStateSchema: z.ZodType<GameState> = z.object({
   nodeId: z.string(),
+  lastChoice: ChoiceTraceSchema.nullable().default(null),
   history: z.array(z.string()),
   visited: z.array(z.string()),
   vars: VarsSchema,
@@ -274,6 +323,8 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
   tutorialsSeen: z.array(z.string()).default([]),
   violations: z.array(z.string()),
   day: z.number(),
+  world: z.string().default('default'),
+  phase: z.string().default('default'),
   achievements: z.array(z.string()),
   endingId: z.string().nullable(),
   updatedAt: z.number(),
@@ -282,7 +333,7 @@ export const GameStateSchema: z.ZodType<GameState> = z.object({
 /* ------------------------------ 解析 / 迁移 ------------------------------ */
 
 /** 当前 Schema 版本（写入 Story.meta.version） */
-export const SCHEMA_VERSION = '0.5.0'
+export const SCHEMA_VERSION = '0.8.0'
 
 /** schema 校验失败时的可读错误 */
 export class StorySchemaError extends Error {

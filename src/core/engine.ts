@@ -23,6 +23,7 @@ export class Game {
       this.assertNode(save.nodeId)
       this.st = {
         nodeId: save.nodeId,
+        lastChoice: save.lastChoice ?? null,
         history: [...save.history],
         visited: [...(save.visited ?? [])],
         vars: { ...save.vars },
@@ -39,6 +40,8 @@ export class Game {
         tutorialsSeen: [...(save.tutorialsSeen ?? [])],
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
+        world: save.world ?? story.meta.world?.initial ?? 'default',
+        phase: save.phase ?? story.meta.phase?.initial ?? 'default',
         achievements: [...(save.achievements ?? [])],
         endingId: save.endingId ?? null,
         updatedAt: save.updatedAt ?? Date.now(),
@@ -46,6 +49,7 @@ export class Game {
     } else {
       this.st = {
         nodeId: story.start,
+        lastChoice: null,
         history: [story.start],
         visited: [story.start],
         vars: {},
@@ -62,6 +66,8 @@ export class Game {
         tutorialsSeen: [],
         violations: [],
         day: 1,
+        world: story.meta.world?.initial ?? 'default',
+        phase: story.meta.phase?.initial ?? 'default',
         achievements: [],
         endingId: null,
         updatedAt: Date.now(),
@@ -113,9 +119,16 @@ export class Game {
       throw new RangeError(`选项索引越界：${index}（可见选项 0..${choices.length - 1}）`)
     }
     const choice = choices[index]
+    const fromNodeId = this.st.nodeId
     const target = this.effectTarget()
     applyEffects(choice.effects, target)
-    this.st.day = target.day
+    this.syncEffectScalars(target)
+    this.st.lastChoice = {
+      fromNodeId,
+      targetNodeId: choice.target,
+      label: choice.label,
+      ...(choice.response !== undefined ? { response: choice.response } : {}),
+    }
     this.enter(choice.target)
   }
 
@@ -123,6 +136,7 @@ export class Game {
   restart(): void {
     this.st = {
       nodeId: this.story.start,
+      lastChoice: null,
       history: [this.story.start],
       visited: [this.story.start],
       vars: {},
@@ -139,6 +153,8 @@ export class Game {
       tutorialsSeen: [],
       violations: [],
       day: 1,
+      world: this.story.meta.world?.initial ?? 'default',
+      phase: this.story.meta.phase?.initial ?? 'default',
       achievements: [],
       endingId: null,
       updatedAt: Date.now(),
@@ -162,6 +178,8 @@ export class Game {
       if (k === '#day') {
         return String(this.st.day)
       }
+      if (k === '#world') return this.st.world
+      if (k === '#phase') return this.st.phase
       const v = this.st.vars[k]
       return v === undefined ? match : String(v)
     })
@@ -172,6 +190,7 @@ export class Game {
   toSave(): GameState {
     return {
       nodeId: this.st.nodeId,
+      lastChoice: this.st.lastChoice ? { ...this.st.lastChoice } : null,
       history: [...this.st.history],
       visited: [...this.st.visited],
       vars: { ...this.st.vars },
@@ -188,6 +207,8 @@ export class Game {
       tutorialsSeen: [...this.st.tutorialsSeen],
       violations: [...this.st.violations],
       day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
       achievements: [...this.st.achievements],
       endingId: this.st.endingId,
       updatedAt: Date.now(),
@@ -247,7 +268,7 @@ export class Game {
       this.st.deductions.push(deductionId)
       const target = this.effectTarget()
       applyEffects(deduction.onConfirmed, target)
-      this.st.day = target.day
+      this.syncEffectScalars(target)
       this.checkAchievements()
     }
     return true
@@ -280,7 +301,7 @@ export class Game {
     this.st.solvedPuzzles.push(puzzleId)
     const target = this.effectTarget()
     applyEffects(puzzle.onSolved, target)
-    this.st.day = target.day
+    this.syncEffectScalars(target)
     this.checkAchievements()
     return { solved: true, attempts }
   }
@@ -307,6 +328,8 @@ export class Game {
       visited: this.st.visited,
       docs: this.st.docs,
       day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
       violations: this.st.violations,
       evidence: this.st.evidence,
       deductions: this.st.deductions,
@@ -322,7 +345,7 @@ export class Game {
     if (node?.onEnter) {
       const target = this.effectTarget()
       applyEffects(node.onEnter, target)
-      this.st.day = target.day
+      this.syncEffectScalars(target)
     }
   }
 
@@ -337,6 +360,8 @@ export class Game {
       inventory: this.st.inventory,
       docs: this.st.docs,
       day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
       violations: this.st.violations,
       evidence: this.st.evidence,
       relations: this.st.relations,
@@ -346,6 +371,12 @@ export class Game {
       memories: this.st.memories,
       revealedSecrets: this.st.revealedSecrets,
     }
+  }
+
+  private syncEffectScalars(target: { day: number; world?: string; phase?: string }): void {
+    this.st.day = target.day
+    this.st.world = target.world ?? this.st.world
+    this.st.phase = target.phase ?? this.st.phase
   }
 
   private initialRelations(): Record<string, Record<string, number>> {
@@ -372,6 +403,13 @@ export class Game {
   private assertSave(save: GameState): void {
     const bad: string[] = []
     if (typeof save.nodeId !== 'string') bad.push('nodeId')
+    if (save.lastChoice !== undefined && save.lastChoice !== null && (
+      typeof save.lastChoice !== 'object' ||
+      typeof save.lastChoice.fromNodeId !== 'string' ||
+      typeof save.lastChoice.targetNodeId !== 'string' ||
+      typeof save.lastChoice.label !== 'string' ||
+      (save.lastChoice.response !== undefined && typeof save.lastChoice.response !== 'string')
+    )) bad.push('lastChoice')
     if (!Array.isArray(save.history) || !save.history.every((x) => typeof x === 'string')) bad.push('history')
     if (save.vars === null || typeof save.vars !== 'object' || Array.isArray(save.vars)) bad.push('vars')
     if (!Array.isArray(save.inventory) || !save.inventory.every((x) => typeof x === 'string')) bad.push('inventory')

@@ -149,6 +149,57 @@ describe('effects / conditions 直接单测', () => {
     expect(evalCondition(undefined, ctx)).toBe(true)
   })
 
+  it('记录选择承接，并随存档恢复与重开清空', () => {
+    const responseStory = makeStory()
+    responseStory.nodes.start.choices[0].response = '你把剑握紧，勇气升到 {courage}。'
+    const game = new Game(responseStory)
+    game.choose(0)
+
+    expect(game.state.lastChoice).toEqual({
+      fromNodeId: 'start', targetNodeId: 'armed', label: '拿剑',
+      response: '你把剑握紧，勇气升到 {courage}。',
+    })
+    expect(game.interpolate(game.state.lastChoice!.response!)).toContain('勇气升到 8')
+
+    const restored = new Game(responseStory, game.toSave())
+    expect(restored.state.lastChoice).toEqual(game.state.lastChoice)
+    restored.restart()
+    expect(restored.state.lastChoice).toBeNull()
+  })
+
+  it('world/phase 同时驱动条件、插值、存档与重开', () => {
+    const stateStory = makeStory()
+    stateStory.meta.world = {
+      initial: 'surface',
+      states: { surface: { label: '表世界' }, other: { label: '里世界' } },
+    }
+    stateStory.meta.phase = {
+      initial: 'day',
+      states: { day: { label: '白天' }, night: { label: '夜晚' } },
+    }
+    stateStory.nodes.start.choices[0].effects = {
+      ...stateStory.nodes.start.choices[0].effects,
+      world: 'other',
+      phase: 'night',
+    }
+    stateStory.nodes.armed.choices = [{
+      label: '只在里世界出现', target: 'fight',
+      when: { op: 'eq', var: '#world', value: 'other' },
+    }]
+
+    const game = new Game(stateStory)
+    expect(game.state).toMatchObject({ world: 'surface', phase: 'day' })
+    game.choose(0)
+    expect(game.state).toMatchObject({ world: 'other', phase: 'night' })
+    expect(game.visibleChoices().map((choice) => choice.label)).toEqual(['只在里世界出现'])
+    expect(game.interpolate('{#world}/{#phase}')).toBe('other/night')
+
+    const restored = new Game(stateStory, game.toSave())
+    expect(restored.state).toMatchObject({ world: 'other', phase: 'night' })
+    restored.restart()
+    expect(restored.state).toMatchObject({ world: 'surface', phase: 'day' })
+  })
+
   it('集合型特殊变量同时支持 eq/ne 与 has/not_has', () => {
     const ctx = {
       vars: {},

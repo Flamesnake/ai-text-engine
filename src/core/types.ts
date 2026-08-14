@@ -1,5 +1,5 @@
 /**
- * ai-text-engine 数据模型（纯数据，可 JSON 序列化）。
+ * TaleSpindle 数据模型（纯数据，可 JSON 序列化）。
  *
  * 设计目标：给 AI 用 —— 所有剧情都是 JSON 数据，AI 通过 MCP 工具读写，
  * 引擎负责求值、校验与渲染。
@@ -19,6 +19,20 @@ export const SFX_NAMES = [
   'ending_good', 'ending_bad', 'ending_true', 'ending_hidden', 'shock',
 ] as const
 export type SfxName = typeof SFX_NAMES[number]
+
+/** 可跨节点持续的程序化环境声；与短促 sfx 分离。 */
+export const SOUNDSCAPE_NAMES = [
+  'rain', 'wind', 'storm', 'waves', 'broadcast',
+  'electric', 'ventilation', 'engine', 'void',
+] as const
+export type SoundscapeName = typeof SOUNDSCAPE_NAMES[number]
+export type SoundscapeIntensity = 'subtle' | 'medium' | 'strong'
+
+export interface SoundscapeSpec {
+  name: SoundscapeName
+  /** 使用语义等级而非频率/音符参数，保持创作输入紧凑、安全。 */
+  intensity?: SoundscapeIntensity
+}
 
 /** 结局分类 */
 export type EndingKind = 'good' | 'bad' | 'true' | 'hidden'
@@ -70,6 +84,10 @@ export interface Effects {
   violation?: string[]
   /** 推进天数（增量，默认 +1；负数为回退；最小 1） */
   day?: number
+  /** 切换叙事世界/位面；值必须在 meta.world.states 中定义。 */
+  world?: string
+  /** 切换叙事阶段；值必须在 meta.phase.states 中定义。 */
+  phase?: string
   /** 获得道具 */
   gain?: string[]
   /** 失去道具 */
@@ -252,6 +270,20 @@ export interface PresentationConfig {
   choiceStyle?: 'buttons' | 'list' | 'dialogue' | 'commands'
 }
 
+/** world/phase 状态对应的受控表现覆盖；逻辑选项仍通过 #world/#phase 条件控制。 */
+export interface StateAppearance {
+  label?: string
+  theme?: string | ThemeConfig
+  presentation?: PresentationConfig
+  soundscape?: SoundscapeSpec | 'silence'
+}
+
+export interface StateAxisConfig {
+  /** 新游戏与旧存档迁移时使用的状态 id。 */
+  initial: string
+  states: Record<string, StateAppearance>
+}
+
 /** HUD 统计条（好感度/理智值等数值变量的可视化） */
 export interface HudStat {
   /** 变量名（vars 中的数值键） */
@@ -275,12 +307,25 @@ export interface EndingMeta {
 export interface Choice {
   /** 按钮文案（同样支持 {var} 插值） */
   label: string
+  /**
+   * 选择后、目标节点正文前显示的即时承接。用于确认玩家行动与场景反应，
+   * 尤其适合多个不同选择汇入同一节点时；支持与正文相同的变量插值。
+   */
+  response?: string
   /** 目标节点 id */
   target: string
   /** 显示条件（不满足时选项被隐藏） */
   when?: Condition
   /** 选择本选项后生效 */
   effects?: Effects
+}
+
+/** 最近一次选择的叙事承接；属于展示状态，不参与路径逻辑。 */
+export interface ChoiceTrace {
+  fromNodeId: string
+  targetNodeId: string
+  label: string
+  response?: string
 }
 
 export interface StoryNode {
@@ -293,6 +338,11 @@ export interface StoryNode {
   blocks?: TextBlock[]
   /** 进入本节点时播放的内置音效。 */
   sfx?: SfxName
+  /**
+   * 声景切换点。对象会持续到后续节点再次声明；`silence` 显式淡出。
+   * 未声明时沿用当前声景，避免逐节点重复配置。
+   */
+  soundscape?: SoundscapeSpec | 'silence'
   /**
    * 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse，
    * 或带参数的规格 { name, intensity?, speed? }：intensity 幅度倍率（0.3=轻微，2=剧烈），speed 频率倍率（2=快一倍，0.5=慢一倍），默认 1。
@@ -334,6 +384,12 @@ export interface StoryMeta {
   theme?: string | ThemeConfig
   /** 全局视觉表达；未提供的维度使用可靠默认值。 */
   presentation?: PresentationConfig
+  /** 新游戏的初始持续声景；节点可声明切换或 silence。 */
+  soundscape?: SoundscapeSpec
+  /** 表世界/里世界等叙事位面。 */
+  world?: StateAxisConfig
+  /** 白天/夜晚/警报/断电等叙事阶段。 */
+  phase?: StateAxisConfig
   /** HUD 统计条（好感度等数值变量） */
   hud?: HudStat[]
 }
@@ -364,6 +420,8 @@ export interface Story {
 
 export interface GameState {
   nodeId: string
+  /** 最近一次选择；仅在其目标为当前节点时显示 response。 */
+  lastChoice: ChoiceTrace | null
   history: string[]
   /** 去重后的已访问节点（成就/条件用） */
   visited: string[]
@@ -393,6 +451,9 @@ export interface GameState {
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */
   day: number
+  /** 当前叙事世界与阶段；旧存档按 meta 中 initial 迁移。 */
+  world: string
+  phase: string
   /** 已解锁成就 id */
   achievements: string[]
   endingId: string | null

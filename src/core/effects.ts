@@ -7,6 +7,8 @@ export interface EffectTarget {
   docs: string[]
   /** 当前天数（day 效果累加后回写） */
   day: number
+  world?: string
+  phase?: string
   /** 违规记录（去重） */
   violations: string[]
   /** 已获得证据；旧调用者未提供时忽略 gainEvidence */
@@ -54,6 +56,8 @@ export function applyEffects(
   if (effects.day !== undefined) {
     target.day = Math.max(1, target.day + effects.day)
   }
+  if (effects.world !== undefined) target.world = effects.world
+  if (effects.phase !== undefined) target.phase = effects.phase
   if (effects.gain) {
     for (const item of effects.gain) {
       if (!target.inventory.includes(item)) target.inventory.push(item)

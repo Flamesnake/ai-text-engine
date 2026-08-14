@@ -14,6 +14,8 @@ export interface ConditionContext {
   docs?: string[]
   /** 当前天数 */
   day?: number
+  world?: string
+  phase?: string
   /** 已违反的规则 id */
   violations?: string[]
   evidence?: string[]
@@ -110,6 +112,10 @@ function evalSpecial(cond: Condition, ctx: ConditionContext): boolean {
     }
     case '#day':
       return compare(cond.op, ctx.day ?? 1, cond.value)
+    case '#world':
+      return compare(cond.op, ctx.world ?? 'default', cond.value)
+    case '#phase':
+      return compare(cond.op, ctx.phase ?? 'default', cond.value)
     case '#violated': {
       const has =
         cond.value !== undefined && (ctx.violations ?? []).includes(String(cond.value))

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const temp = await mkdtemp(path.join(os.tmpdir(), 'ate-package-'))
+const temp = await mkdtemp(path.join(os.tmpdir(), 'talespindle-package-'))
 const packDir = path.join(temp, 'pack')
 const installDir = path.join(temp, 'install')
 const cacheDir = path.join(root, '_scratch', 'npm-cache')
@@ -19,7 +19,7 @@ const packResult = runNpm(
 )
 const packed = JSON.parse(packResult.stdout)[0]
 const files = packed.files.map((file) => file.path)
-const required = ['dist/cli.js', 'dist/mcp/server.js', 'dist/export/runtime.bundle.js', 'skill/SKILL.md', 'README.md', 'LICENSE']
+const required = ['dist/cli.js', 'dist/mcp/server.js', 'dist/export/runtime.bundle.js', 'skill/SKILL.md', 'docs/world-state.md', 'README.md', 'LICENSE']
 const forbidden = files.filter((file) =>
   file.startsWith('projects/') || file.startsWith('src/') || file.startsWith('_scratch/') ||
   file.startsWith('.codex/') || file.startsWith('.reasonix/') || file.includes('.test.'))
@@ -42,7 +42,7 @@ if (typeof publicApi.evaluateStory !== 'function' || typeof publicApi.exportToHt
   throw new Error('installed public API exports are incomplete')
 }
 const doctor = spawnSync(process.execPath, [cliPath, 'doctor', '--home', dataHome], {
-  cwd: installDir, encoding: 'utf8', env: { ...process.env, AI_TEXT_ENGINE_HOME: dataHome },
+  cwd: installDir, encoding: 'utf8', env: { ...process.env, TALESPINDLE_HOME: dataHome },
 })
 if (doctor.status !== 0 || !doctor.stdout.includes('OK mcp-server') || !doctor.stdout.includes('OK runtime-bundle')) {
   throw new Error(`installed doctor failed:\n${doctor.stdout}\n${doctor.stderr}`)
@@ -51,7 +51,13 @@ const defaultDataBase = path.join(temp, 'default-data')
 const defaultDoctor = spawnSync(process.execPath, [cliPath, 'doctor'], {
   cwd: installDir,
   encoding: 'utf8',
-  env: { ...process.env, AI_TEXT_ENGINE_HOME: '', LOCALAPPDATA: defaultDataBase, XDG_DATA_HOME: defaultDataBase },
+  env: {
+    ...process.env,
+    TALESPINDLE_HOME: '',
+    AI_TEXT_ENGINE_HOME: '',
+    LOCALAPPDATA: defaultDataBase,
+    XDG_DATA_HOME: defaultDataBase,
+  },
 })
 if (defaultDoctor.status !== 0 || !defaultDoctor.stdout.includes(defaultDataBase) || defaultDoctor.stdout.includes(path.join(installedRoot, 'projects'))) {
   throw new Error(`installed default data isolation failed:\n${defaultDoctor.stdout}\n${defaultDoctor.stderr}`)
@@ -62,7 +68,7 @@ const skillInstall = spawnSync(process.execPath, [cliPath, 'install-skill', '--t
   cwd: installDir, encoding: 'utf8',
 })
 if (skillInstall.status !== 0) throw new Error(`installed Skill command failed:\n${skillInstall.stderr}`)
-await accessFile(path.join(skillsRoot, 'ai-text-engine', 'SKILL.md'))
+await accessFile(path.join(skillsRoot, 'talespindle-author', 'SKILL.md'))
 await verifyInstalledMcp(cliPath, installDir, dataHome)
 
 const { exportToHtml } = await import(pathToFileURL(path.join(installedRoot, 'dist', 'export', 'exporter.js')).href)
@@ -84,7 +90,7 @@ console.log(`export: ${exported.outputPath}`)
 async function verifyInstalledMcp(cliPath, cwd, dataHome) {
   const child = (await import('node:child_process')).spawn(
     process.execPath, [cliPath, 'mcp', '--home', dataHome],
-    { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, AI_TEXT_ENGINE_HOME: dataHome } },
+    { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, TALESPINDLE_HOME: dataHome } },
   )
   let buffer = ''
   const responses = []
@@ -125,6 +131,7 @@ function runNpm(args, options = {}) {
   const cwd = options.cwd ?? root
   const result = spawnSync(process.execPath, [npmCli, ...args], {
     cwd, encoding: 'utf8', stdio: options.capture ? 'pipe' : 'inherit', maxBuffer: 10 * 1024 * 1024,
+    timeout: 120_000,
   })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`npm ${args.join(' ')} failed (${result.status})\n${result.stderr ?? ''}`)

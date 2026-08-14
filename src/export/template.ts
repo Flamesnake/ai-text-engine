@@ -209,6 +209,12 @@ body {
   box-shadow: 0 18px 52px rgba(0,0,0,.5);
 }
 .card-text { line-height: 2.05; font-size: 1.06rem; white-space: pre-wrap; min-height: 5em; }
+.choice-response {
+  margin: 0 0 1rem; padding: .72rem .9rem;
+  border-left: 3px solid var(--accent); color: var(--text-dim);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  line-height: 1.75; white-space: pre-wrap;
+}
 .card-actions { display: flex; flex-direction: column; gap: .7rem; margin-top: 1.7rem; }
 .choice-btn { text-align: left; letter-spacing: .05em; }
 
@@ -370,6 +376,13 @@ body {
   to { opacity: 1; filter: none; }
 }
 
+/* world/phase 改变时的一次性过渡；逻辑显隐仍由引擎条件控制。 */
+.state-transition { animation: state-transition .38s ease-out both; }
+@keyframes state-transition {
+  from { opacity: .25; filter: blur(3px) saturate(.65); }
+  to { opacity: 1; filter: none; }
+}
+
 /* 线索夹 */
 .docs-btn {
   font-family: 'JetBrains Mono', Consolas, monospace;
@@ -491,7 +504,7 @@ body {
   50% { transform: scale(var(--fx-pulse-scale, 1.02)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst, .segment-revealed { animation: none; }
+  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst, .segment-revealed, .state-transition { animation: none; }
 }
 
 /* 成就 */
