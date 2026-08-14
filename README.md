@@ -1,52 +1,122 @@
-# ai-text-engine · 给 AI 用的文字冒险引擎 + MCP 服务器
+# TaleSpindle
 
-让 AI（Claude / Cursor / 任何支持 MCP 的 agent）通过 **MCP 工具**创建、编辑、校验并导出
-**单文件 HTML 文字冒险游戏**的引擎。
+An agent-first interactive narrative engine. TaleSpindle lets Claude, Codex, Cursor, and other
+MCP-capable agents create, validate, test, and export **self-contained HTML text adventures**.
 
 - **剧情 = 纯 JSON 数据**：AI 用工具增删节点，无需写代码；
 - **通用机制**：变量 / 道具 / 旗标 / 条件选项 / 节点进入效果，够做悬疑、RPG、怪谈等题材；
 - **单文件导出**：`story_export` 产出一个自包含 `index.html`，双击即玩、可发任何人、零依赖；
-- **强校验**：断链、不可达节点、结局登记、变量拼写错误都会被自动发现；
-- **全路径模拟**：自动遍历所有分支，报告每个结局的可达路径数与最短步数。
+- **质量闭环**：静态校验、结局见证、失败路线、DOM 重放与体验评估共同发现结构和交互问题；
+- **推理与演出**：内置证据、推论、谜题、人物关系、受控富文本和轻量声画效果；
+- **宿主无关**：核心是普通 Node.js + MCP 服务，未来可以通过薄适配层接入不同 Agent Harness。
 
-## 快速开始
+设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md)
 
-> 配套 AI skill：`ai-text-engine`（已安装到全局技能目录 `~/.agents/skills/ai-text-engine/`）。
-> AI 加载该 skill 后即可按标准工作流（建项目 → 写节点 → 校验 → 导出）直接开工，无需读本文档。
+## 安装
+
+正式 npm 包名为 `@marianaj/talespindle`。普通用户不需要 clone 仓库、运行构建，也不需要安装 DeepSeek Harness；只需 Node.js 20+ 和一个支持 stdio MCP 的 Agent 客户端。
+
+### Codex：三步安装
 
 ```bash
-npm install          # 安装依赖
-npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
-npm test             # 66 个测试（vitest）
-npm run mcp          # 以 stdio 方式启动 MCP 服务器
+# 1. 检查 Node、数据目录、预构建运行时和 MCP
+npx -y @marianaj/talespindle@latest doctor
+
+# 2. 安装配套创作 Skill
+npx -y @marianaj/talespindle@latest install-skill --client codex
+
+# 3. 把 npm 包持久注册为 Codex MCP server
+codex mcp add talespindle -- npx -y @marianaj/talespindle@latest mcp
 ```
 
-### 注册到 AI 客户端
+完成后重启或刷新 Codex，在新任务中检查是否出现 `story_new`、`story_validate`、`story_export` 等 `story_` 工具。Skill 可见但没有这些工具，说明 MCP 尚未连接。
 
-工作区根目录的 `.mcp.json` 已注册（Windows 绝对路径）：
+升级时无需重新注册 MCP；重新安装 Skill 即可同步新版创作流程：
+
+```bash
+npx -y @marianaj/talespindle@latest doctor
+npx -y @marianaj/talespindle@latest install-skill --client codex --force
+```
+
+Codex 与通用 Agent Skill 默认安装到 `~/.agents/skills/talespindle-author`。`install-skill` 也支持 `--client agents` 和 `--client claude`；已有同名 Skill 时，只有显式传入 `--force` 才会覆盖。
+
+### 其他 MCP 客户端
+
+Claude Desktop、Cursor 等使用 JSON 配置的客户端可注册同一条 npm 命令：
 
 ```json
 {
   "mcpServers": {
-    "ai-text-engine": {
-      "command": "node",
-      "args": ["C:/path/to/ai-text-engine/dist/mcp/server.js"]
+    "talespindle": {
+      "command": "npx",
+      "args": ["-y", "@marianaj/talespindle@latest", "mcp"]
     }
   }
 }
 ```
 
-> 把 `C:/path/to/ai-text-engine` 换成你 clone 后的实际路径（Windows 用正斜杠或转义反斜杠）。
+使用 TOML 配置的客户端可采用：
 
-也可以在 Claude Desktop / Cursor 等客户端的 MCP 配置中按同样方式添加。
+```toml
+[mcp_servers."talespindle"]
+command = "npx"
+args = ["-y", "@marianaj/talespindle@latest", "mcp"]
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 360
+```
+
+不同客户端读取的配置位置不同；仓库根目录的 `.mcp.json` 不能证明客户端已经注册服务器。已有的 `ai-text-engine` MCP 键名和 CLI 别名仍兼容，但新安装统一使用 `talespindle`。
+
+### 作品目录
+
+npm 版本默认把作品写到操作系统用户数据目录，不会写进 `node_modules`。设置 `TALESPINDLE_HOME` 可指定数据根目录，作品位于其 `projects/` 子目录；旧变量 `AI_TEXT_ENGINE_HOME` 仍兼容。
+
+```bash
+npx -y @marianaj/talespindle@latest init --home C:/path/to/talespindle-data
+```
+
+仓库自身的 `projects/` 是开发者本地创作区，已被 Git 整体忽略；其中的 `story.json`、导出 HTML 和个人作品不会进入源码提交或 npm 包。
+
+## 从源码开发
+
+```bash
+npm install
+npm run build
+npm test
+npm run mcp
+npm run check:release
+npm run check:package
+```
+
+构建后也可直接使用本地 CLI：
+
+```bash
+node dist/cli.js doctor
+node dist/cli.js install-skill --client codex
+codex mcp add talespindle-local -- node E:/path/to/ai-text-engine/dist/cli.js mcp
+```
+
+配套 Skill 源文件位于 `skill/SKILL.md`。客户端加载的是已安装副本；修改 Skill 源文件后需要重新运行 `install-skill --force`。`npm run check:release` 会读取本机 `projects/` 做兼容性回归，但不会复制、修改或上传作品。
 
 ### 验证
 
 ```bash
-node scripts/verify-mcp.mjs      # stdio 握手 + 工具清单（应输出 VERIFY OK，11 个工具）
+node scripts/verify-mcp.mjs      # stdio 握手 + 工具清单（应输出 VERIFY OK）
 node scripts/demo.mjs            # 端到端演示：AI 全流程构建《迷雾车站》并导出
 node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
+node scripts/build-integrated-mystery.mjs   # 通过 MCP 构建综合悬疑样板《雨夜遗嘱》
+node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完整真相路线
 ```
+
+第一轮 Agent 泛化盲测题见 `docs/evals/blind-prompts.md`；隐藏评分表见 `docs/evals/evaluation-rubric.md`。生成 Agent 只能看到题目，不能看到评分表。
+
+产品核心的近期与远期路线、阶段依赖、暂不做事项和质量门槛见
+[`docs/product-roadmap.md`](docs/product-roadmap.md)。当前正在完成首个“插件就绪”版本：质量闭环、严格声画契约、
+受控富文本、部署诊断与版本发布；叙事声景、世界状态、拟态网页、受控空间和 Meta 叙事不作为首个插件前置条件。
+插件封装边界和发布清单见 [`docs/plugin-readiness.md`](docs/plugin-readiness.md)。
+文字、媒介、空间与远期 3D 能力的产品边界见
+[`docs/narrative-freedom.md`](docs/narrative-freedom.md)：所有自由度必须服务文字冒险体验，并保持结构化、可校验和可降级。
 
 ## MCP 工具
 
@@ -54,20 +124,49 @@ node scripts/verify-export.mjs   # 验证导出 HTML 内嵌剧情可玩
 |---|---|
 | `story_new` | 创建项目（写 `projects/<标题>/story.json` 骨架）；已存在则复用 |
 | `story_get` | 读取整个剧情 JSON |
+| `story_get_node` | 读取单个节点及其入边，避免局部修稿时全量读取 |
+| `story_review_transitions` | 分页返回源末段、选项承接和目标首段，用于连续性审查 |
+| `story_patch_choice` | 只修改一个选项；可断言旧 label/target 防止按过期索引误改 |
 | `story_upsert_node` | 创建/覆盖节点（结局自动登记到结局表） |
 | `story_delete_node` | 删除节点（有引用时需 `force: true`，会报告断链） |
 | `story_delete_ending` | 从结局表删除结局（被节点使用时拒绝） |
 | `story_upsert_achievement` / `story_delete_achievement` | 添加/删除成就定义 |
 | `story_upsert_document` / `story_delete_document` | 添加/删除线索/文档（规则守则/便条/信件，可被收集查看） |
-| `story_validate` | 校验 + 全路径模拟（结局覆盖统计） |
-| `story_walk` | 全路径模拟（各结局路径数 / 最短步数 / 未到达结局） |
+| `story_upsert_evidence` / `story_delete_evidence` | 添加/删除可用于推理的证据 |
+| `story_upsert_deduction` / `story_delete_deduction` | 添加/删除证据组合推论 |
+| `story_upsert_character` / `story_delete_character` | 添加/删除包含关系维度与秘密的人物 |
+| `story_upsert_puzzle` / `story_delete_puzzle` | 添加/删除密码谜题、渐进提示与成功效果 |
+| `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
+| `story_evaluate` | 作品体验评估：互动、机制、演出、重复导航与 walk 健康度；不打总分 |
+| `story_walk` | 结局见证与覆盖诊断（可重放路径 / 预算占用 / 热点节点；可调 `maxStates` 等参数） |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
 | `story_export` | 导出单文件 HTML（校验不通过时拒绝） |
-| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** |
+| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** / **初始持续声景** |
+| `story_set_presentation` | 设置 `novel/dossier/chat/cinematic` 外壳与字体、密度、形状、选项风格 |
 | `story_list` | 列出所有项目 |
 | `story_delete_project` | 删除整个项目 |
+| `story_observability` / `story_observability_reset` | 查看/清零本地 MCP 成本摘要（调用、字节、粗略 token、耗时、重复覆盖） |
 
 项目数据存放在 `projects/<标题>/story.json`，导出物在 `projects/<标题>/dist/index.html`。
+
+复杂开放结构可调用
+`story_walk { title, diagnostics: true, topNodes: 10, maxStates?: 100000, witnessMaxStates?: 25000 }`。
+`reachability` 为每个已证明可达的结局返回一条可重放 `witness`；`failures.witnesses` 返回已经找到的
+条件软锁与无结局终点路线，`failures.complete` 表示失败搜索是否完整。即使全量探索超出
+`maxStates`，walker 也会在每个缺失结局上追加一次目标导向搜索。`coverage.complete` 单独表示
+全状态覆盖是否完成，`coverage.reasons` 说明受限原因，`budget.utilization` 与 `hotNodes` 用来定位
+高频 hub/回环。兼容字段 `truncated` 只表示主探索耗尽全局状态预算，不再等同于“结局不可达”。
+构建后可用 `node scripts/verify-walk-witnesses.mjs "作品名"` 在真实 `Game` 中批量重放这些见证；
+再用 `node scripts/verify-dom-witnesses.mjs "作品名"` 自动操作真实运行时的选项、推理板、谜题输入与返回按钮，并确认失败见证确实会把玩家锁住；发现失败路径时命令以非零状态退出。
+两者都不会评价谜题公平性、文案提示和演出节奏，不能完全替代人工试玩。
+
+导出前可调用 `story_evaluate { title }` 集中检查作品。它返回事实指标与带证据的候选问题，
+包括无状态自循环、重复选择结果和未回收的证据/推论/谜题；不输出总分，也不会因题材未采用谜题或人物关系而机械告警。第一轮校准基线见
+[`docs/evals/evaluation-baseline.md`](docs/evals/evaluation-baseline.md)。
+
+盲测前调用 `story_observability_reset {}`，完成后调用 `story_observability {}`，可得到本次 MCP
+进程内的调用次数、失败、请求/响应字节、粗略 token、耗时、全量/单节点读取、转场审查、walk、导出和重复覆盖摘要。
+摘要只保留聚合数字与资源 id，不记录剧情正文，也不等同于模型平台账单。
 
 ## 剧情数据格式
 
@@ -85,6 +184,7 @@ interface StoryNode {
   choices: Choice[]               // 空数组 = 结局节点（必须带 ending）
   ending?: EndingMeta             // { id, title, kind: 'good'|'bad'|'true'|'hidden' }
   onEnter?: Effects               // 进入本节点时生效
+  soundscape?: SoundscapeSpec | 'silence' // 持续声景切换点；未声明则沿用
   tags?: string[]                 // 仅供 AI/作者管理，不影响游戏
   note?: string                   // 设计备注，不进入游戏
 }
@@ -105,6 +205,10 @@ interface Effects {
   gain?: string[]                                  // 获得道具
   lose?: string[]                                  // 失去道具
   gainDocs?: string[]                              // 获得线索/文档
+  gainEvidence?: string[]                          // 获得推理证据
+  adjustRelation?: { characterId: string; stat: string; add: number }[]
+  remember?: string[]                              // 记录关键行为记忆
+  revealSecrets?: string[]                         // 揭示秘密（characterId:secretId）
   flag?: Record<string, boolean>                   // 旗标（与变量同命名空间）
 }
 
@@ -120,11 +224,12 @@ interface Condition {
 
 要点：
 
-- 条件 `has` / `not_has`：`var` 视为**道具名**，检查 `inventory`；
+- 条件 `has` / `not_has`：普通 `var` 视为**道具名**并检查 `inventory`；对于 `#visited`、`#docs`、`#evidence`、`#deduction`、`#violated`、`#memory`、`#secret`、`#puzzle` 等集合型特殊变量，`value` 是要检查的 id；集合变量同时兼容既有 `eq` / `ne` 写法；
 - 条件 `exists`：检查变量是否已定义；其余比较符与 `vars[var]` 比较；
 - **旗标与变量同命名空间**（`flag` 效果写进 `vars`），条件可直接引用；
 - **特殊变量**：`#steps`（步数）、`#ending`（结局 id）、`#visited`（访问过某节点）、
-  `#docs`（获得过某线索）、`#day`（当前天数，数值比较）、`#violated`（违反过某规则，eq 判断）；
+  `#docs`（获得过某文档）、`#evidence`（获得过某证据）、`#deduction`（已确认某推论）、
+  `#day`（当前天数，数值比较）、`#violated`（违反过某规则，eq 判断）；
 - 结局节点：`choices: []` 且带 `ending`；选项的 `target` 必须指向存在的节点；
 - 正文/选项文案中的 `{未写入变量}` 会被 `story_validate` 报告（疑似拼写错误）；
 - 正文插值还支持 `{#day}`（显示天数）。
@@ -137,7 +242,7 @@ interface Condition {
 {
   "id": "dark_hall",
   "text": "走廊尽头一片漆黑……",
-  "sfx": "heartbeat",          // 进入节点播放的音效
+  "sfx": "heartbeat",          // 严格枚举；未知音效在写入时拒绝
   "fx": ["flicker"],           // 卡片动画：shake / flicker / glitch / pulse
   "onEnter": { "day": 1, "violation": ["r_curfew"], "rand": [{ "var": "恐惧", "min": 1, "max": 5 }] }
 }
@@ -145,15 +250,81 @@ interface Condition {
 
 - **音效**（Web Audio 程序化合成，零外部文件）：`click`（选项）、`page`（线索翻页）、
   `heartbeat`（心跳）、`drone`（低频氛围）、`achievement`（成就）、`shock`（惊吓）、
-  `ending_good` / `ending_bad` / `ending_true`（结局）；
+  `ending_good` / `ending_bad` / `ending_true` / `ending_hidden`（结局）；
 - 选项点击、成就解锁、线索翻页、结局自动播放对应音效；标题屏/游戏画面右上角 🔊 按钮可静音（偏好持久化）；
 - **动画**（可调幅度/频率）：`shake` 抖动 / `flicker` 持续闪烁 / `glitch` 毛刺 / `pulse` 脉动 /
   `unstable` 不稳定灯（**随机间隔连闪爆发**，模拟坏灯）；支持带参数规格
-  `{ name, intensity?, speed? }`——`intensity` 幅度倍率（0.3=轻微，2=剧烈）、
-  `speed` 频率倍率（2=快一倍，0.5=慢一倍），默认 1（即原版参数）；
-  例如「不稳定的灯」：`"fx": [{ "name": "unstable", "intensity": 0.6, "speed": 1 }]`（大部分时间正常，
-  随机 2-5 秒触发一次连闪两三下，再安静一阵）；
-  尊重系统「减弱动态效果」设置。
+  `{ name, intensity?, speed? }`——`intensity` 幅度倍率范围 `0.1..2`（0.3=轻微，2=剧烈）、
+  `speed` 频率倍率范围 `0.25..4`（2=快一倍，0.5=慢一倍），默认 1（即原版参数）；越界值在写入时拒绝；
+- 例如「不稳定的灯」：`"fx": [{ "name": "unstable", "intensity": 0.6, "speed": 1 }]`（大部分时间正常，随机 2-5 秒触发一次连闪两三下，再安静一阵）；
+- 尊重系统「减弱动态效果」设置。
+
+### 持续声景
+
+`sfx` 是一次性事件，`soundscape` 是跨节点持续的环境声。初始声景可用
+`story_set_meta { soundscape }` 设置；节点只在声音发生变化时声明，后续未声明节点自动沿用，
+用 `"soundscape": "silence"` 淡出到寂静。切换采用固定交叉淡化，不开放任意音符、频率或音频文件。
+
+```jsonc
+{ "name": "rain", "intensity": "subtle" }
+```
+
+可用声景：`rain`、`wind`、`storm`、`waves`、`broadcast`、`electric`、`ventilation`、
+`engine`、`void`；强度为 `subtle`、`medium`、`strong`。静音会立即影响短音效和持续声景，
+关闭游戏时共享 AudioContext 与所有持续声音都会释放。
+
+### 世界状态与阶段
+
+`meta.world` 表示表世界/里世界等叙事位面，`meta.phase` 表示白天/夜晚、正常/警报等阶段。
+二者使用相同的紧凑结构，可覆盖主题、视觉配方和持续声景；选项逻辑继续显式使用
+`{ "op": "eq", "var": "#world", "value": "other" }` 或 `#phase`，不要藏进 CSS。
+
+```jsonc
+{
+  "world": {
+    "initial": "surface",
+    "states": {
+      "surface": { "label": "表世界", "theme": "paper" },
+      "other": {
+        "label": "里世界",
+        "theme": "cyber",
+        "presentation": { "shell": "cinematic", "typography": "mono" },
+        "soundscape": { "name": "void", "intensity": "strong" }
+      }
+    }
+  },
+  "phase": {
+    "initial": "day",
+    "states": { "day": {}, "night": { "soundscape": { "name": "wind" } } }
+  }
+}
+```
+
+用节点 `onEnter` 或选项 `effects` 中的 `world: "other"`、`phase: "night"` 切换。
+状态会进入存档和 walk 状态键；恢复存档时主题、排版、声景与可见选项同步恢复。完整契约见
+[`docs/world-state.md`](docs/world-state.md)。
+
+## 受控富文本
+
+文本块可用 `segments` 混排强调、斜体、血字、耳语、终端、手写、电视色块，以及条件遮挡/乱码。节点与文本块的 `text` 仍是必填纯文本回退；不接受任意 HTML/CSS。
+
+```jsonc
+{
+  "type": "para",
+  "text": "病历写着：凌晨三点。",
+  "segments": [
+    { "text": "病历写着：" },
+    {
+      "text": "凌晨三点",
+      "style": "redacted",
+      "revealWhen": { "op": "eq", "var": "#evidence", "value": "e_真实时间" }
+    },
+    { "text": "。血迹未干。", "style": "blood" }
+  ]
+}
+```
+
+允许样式：`emphasis`、`italic`、`blood`、`whisper`、`redacted`、`glitch`、`corrupt`、`terminal`、`handwritten`、`broadcast`。条件引用会参与静态校验；未揭示的真实文本不会写入页面 DOM。创作规范见 [`skill/references/rich-text.md`](skill/references/rich-text.md)。
 
 ## 规则怪谈玩法配方（违规度 + 天数循环）
 
@@ -223,6 +394,71 @@ blocks: [
 块类型：`title` 标题 / `para` 段落 / `rules` 规则清单（等宽金字）/ `note` 便条（斜体灰）/ `letter` 信件。
 配合线索夹，即可还原《动物园规则怪谈》式「多份矛盾守则 + 玩家自行推理」的玩法。
 
+## 证据组合推理
+
+推理玩法区分三个概念：Document 是可阅读载体，Evidence 是可用于论证的材料，Deduction 是玩家在推理板用证据确认的命题。
+
+```ts
+interface Evidence {
+  id: string
+  title: string
+  description: string
+  kind?: 'document' | 'object' | 'testimony' | 'observation'
+  source?: string
+}
+
+interface Deduction {
+  id: string
+  statement: string
+  description?: string
+  hint?: string              // 证据不足时的非剧透调查方向
+  requires: { all?: string[]; anyOf?: string[][] }
+  onConfirmed?: Effects
+}
+```
+
+节点用 `gainEvidence` 发放证据。玩家在推理板选择证据组合；推论成立后可用 `#deduction` 条件解锁对话、场景或结局。节点 `objective` 可显示当前目标，推论 `hint` 可提示调查方向。完整设计约定见 `docs/deduction-mvp.md`，可运行样例见 `examples/deduction-demo.story.json`。
+
+## 人物关系、记忆与秘密
+
+人物通过 `story_upsert_character` 定义，并在同一人物内声明关系维度和秘密。关系数值表示程度，记忆表示关系变化的叙事原因，秘密表示玩家已经获知的角色信息。
+
+```ts
+interface Character {
+  id: string
+  name: string
+  description: string
+  relations?: Record<string, { label: string; initial?: number; min?: number; max?: number }>
+  secrets?: Record<string, { id: string; title: string; description: string }>
+}
+```
+
+- 关系条件：`{ op: 'gte', var: '#relation:maid:trust', value: 2 }`；
+- 记忆条件：`{ op: 'eq', var: '#memory', value: 'protected_maid' }`；
+- 秘密条件：`{ op: 'eq', var: '#secret', value: 'maid:hidden_corridor' }`。
+
+玩家可在游戏中的“人物”页查看当前关系和已揭示秘密。完整约定见 `docs/relationships-mvp.md`，样例见 `examples/relationship-demo.story.json`。
+
+## 密码谜题与渐进提示
+
+第一版谜题采用确定性的密码输入，不依赖联网模型：
+
+```ts
+interface Puzzle {
+  id: string
+  title: string
+  prompt: string
+  kind: 'code'
+  solution: string
+  caseSensitive?: boolean
+  hints?: string[]
+  requires?: Condition
+  onSolved?: Effects
+}
+```
+
+玩家通过游戏内信息推导答案，在“谜题”页输入并验证；错误尝试、提示进度和已解状态都会保存。节点用 `#puzzle` 条件解锁后续内容。完整约定见 `docs/puzzles-mvp.md`，样例见 `examples/puzzle-demo.story.json`。
+
 ## AI 使用指引（典型工作流）
 
 1. `story_new { title, subtitle }` — 创建项目（自带 start + 示例结局骨架）；
@@ -230,7 +466,7 @@ blocks: [
    — 清掉示例骨架（或用 `story_upsert_node` 覆盖 `start` 节点）；
 3. `story_upsert_node { node }` × N — 逐个写节点（先写节点再统一校验，中途断链属正常）；
 4. `story_graph { title }` — 用 mermaid 检查分支结构；
-5. `story_validate { title }` — 校验 + 全路径模拟，确认所有结局可达、无断链；
+5. `story_validate { title }` — 校验 + 路径探索模拟，确认所有结局可达、无断链；
 6. `story_export { title }` — 导出单文件 HTML；把 `outputPath` 交给用户即可。
 
 示例成品：《迷雾车站》（10 节点 / 3 结局，含条件选项、道具「旧伞」、旗标、线索文档与规则文本块），
@@ -243,13 +479,15 @@ blocks: [
 src/
 ├── core/          # 引擎核心（纯逻辑，无 DOM）
 │   ├── types.ts   #   数据模型
+│   ├── schema.ts  #   共享 Story Schema（zod 校验 / 版本迁移）
 │   ├── engine.ts  #   Game 状态机
 │   ├── conditions.ts / effects.ts
 │   ├── validate.ts / walk.ts
 │   └── fixtures.ts / *.test.ts
 ├── export/        # 单文件 HTML 导出
 │   ├── runtime.ts #   运行时渲染器（打包进 HTML）
-│   ├── exporter.ts#   esbuild bundle + 模板拼装
+│   ├── exporter.ts#   esbuild bundle + 导出流程
+│   ├── template.ts#   HTML 模板 + 内联 CSS
 │   └── *.test.ts
 ├── mcp/           # MCP 服务器
 │   ├── projects.ts #  项目存储（projects/ 目录）

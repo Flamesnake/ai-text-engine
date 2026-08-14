@@ -1,4 +1,4 @@
-import type { Achievement, Choice, EndingMeta, GameState, Story, StoryNode } from './types.js'
+import type { Achievement, Choice, Condition, EndingMeta, GameState, Story, StoryNode } from './types.js'
 import { applyEffects } from './effects.js'
 import { evalCondition, type ConditionContext } from './conditions.js'
 
@@ -18,16 +18,30 @@ export class Game {
   constructor(story: Story, save?: GameState | null) {
     this.story = story
     if (save) {
+      // 轻量运行时校验：损坏/伪造的存档给出明确错误（浏览器端不引入 zod，见 assertSave）
+      this.assertSave(save)
       this.assertNode(save.nodeId)
       this.st = {
         nodeId: save.nodeId,
+        lastChoice: save.lastChoice ?? null,
         history: [...save.history],
         visited: [...(save.visited ?? [])],
         vars: { ...save.vars },
         inventory: [...save.inventory],
         docs: [...(save.docs ?? [])],
+        evidence: [...(save.evidence ?? [])],
+        deductions: [...(save.deductions ?? [])],
+        relations: structuredClone(save.relations ?? this.initialRelations()),
+        memories: [...(save.memories ?? [])],
+        revealedSecrets: [...(save.revealedSecrets ?? [])],
+        solvedPuzzles: [...(save.solvedPuzzles ?? [])],
+        puzzleAttempts: { ...(save.puzzleAttempts ?? {}) },
+        puzzleHints: { ...(save.puzzleHints ?? {}) },
+        tutorialsSeen: [...(save.tutorialsSeen ?? [])],
         violations: [...(save.violations ?? [])],
         day: typeof save.day === 'number' ? save.day : 1,
+        world: save.world ?? story.meta.world?.initial ?? 'default',
+        phase: save.phase ?? story.meta.phase?.initial ?? 'default',
         achievements: [...(save.achievements ?? [])],
         endingId: save.endingId ?? null,
         updatedAt: save.updatedAt ?? Date.now(),
@@ -35,13 +49,25 @@ export class Game {
     } else {
       this.st = {
         nodeId: story.start,
+        lastChoice: null,
         history: [story.start],
         visited: [story.start],
         vars: {},
         inventory: [],
         docs: [],
+        evidence: [],
+        deductions: [],
+        relations: this.initialRelations(),
+        memories: [],
+        revealedSecrets: [],
+        solvedPuzzles: [],
+        puzzleAttempts: {},
+        puzzleHints: {},
+        tutorialsSeen: [],
         violations: [],
         day: 1,
+        world: story.meta.world?.initial ?? 'default',
+        phase: story.meta.phase?.initial ?? 'default',
         achievements: [],
         endingId: null,
         updatedAt: Date.now(),
@@ -74,11 +100,14 @@ export class Game {
     return this.st.history.length
   }
 
-  /** 应用条件过滤后当前可见的选项 */
+  /** 应用条件过滤后当前可见的选项（when 支持与成就相同的全部特殊变量） */
   visibleChoices(): Choice[] {
-    return this.currentNode.choices.filter((c) =>
-      evalCondition(c.when, { vars: this.st.vars, inventory: this.st.inventory }),
-    )
+    return this.currentNode.choices.filter((c) => evalCondition(c.when, this.conditionContext()))
+  }
+
+  /** 对当前完整游戏状态求值；受控表现层复用同一条件真相源。 */
+  meets(condition: Condition | undefined): boolean {
+    return evalCondition(condition, this.conditionContext())
   }
 
   /* ------------------------------ 动作 ------------------------------ */
@@ -90,15 +119,16 @@ export class Game {
       throw new RangeError(`选项索引越界：${index}（可见选项 0..${choices.length - 1}）`)
     }
     const choice = choices[index]
-    const target = {
-      vars: this.st.vars,
-      inventory: this.st.inventory,
-      docs: this.st.docs,
-      day: this.st.day,
-      violations: this.st.violations,
-    }
+    const fromNodeId = this.st.nodeId
+    const target = this.effectTarget()
     applyEffects(choice.effects, target)
-    this.st.day = target.day
+    this.syncEffectScalars(target)
+    this.st.lastChoice = {
+      fromNodeId,
+      targetNodeId: choice.target,
+      label: choice.label,
+      ...(choice.response !== undefined ? { response: choice.response } : {}),
+    }
     this.enter(choice.target)
   }
 
@@ -106,13 +136,25 @@ export class Game {
   restart(): void {
     this.st = {
       nodeId: this.story.start,
+      lastChoice: null,
       history: [this.story.start],
       visited: [this.story.start],
       vars: {},
       inventory: [],
       docs: [],
+      evidence: [],
+      deductions: [],
+      relations: this.initialRelations(),
+      memories: [],
+      revealedSecrets: [],
+      solvedPuzzles: [],
+      puzzleAttempts: {},
+      puzzleHints: {},
+      tutorialsSeen: [],
       violations: [],
       day: 1,
+      world: this.story.meta.world?.initial ?? 'default',
+      phase: this.story.meta.phase?.initial ?? 'default',
       achievements: [],
       endingId: null,
       updatedAt: Date.now(),
@@ -136,6 +178,8 @@ export class Game {
       if (k === '#day') {
         return String(this.st.day)
       }
+      if (k === '#world') return this.st.world
+      if (k === '#phase') return this.st.phase
       const v = this.st.vars[k]
       return v === undefined ? match : String(v)
     })
@@ -146,13 +190,25 @@ export class Game {
   toSave(): GameState {
     return {
       nodeId: this.st.nodeId,
+      lastChoice: this.st.lastChoice ? { ...this.st.lastChoice } : null,
       history: [...this.st.history],
       visited: [...this.st.visited],
       vars: { ...this.st.vars },
       inventory: [...this.st.inventory],
       docs: [...this.st.docs],
+      evidence: [...this.st.evidence],
+      deductions: [...this.st.deductions],
+      relations: structuredClone(this.st.relations),
+      memories: [...this.st.memories],
+      revealedSecrets: [...this.st.revealedSecrets],
+      solvedPuzzles: [...this.st.solvedPuzzles],
+      puzzleAttempts: { ...this.st.puzzleAttempts },
+      puzzleHints: { ...this.st.puzzleHints },
+      tutorialsSeen: [...this.st.tutorialsSeen],
       violations: [...this.st.violations],
       day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
       achievements: [...this.st.achievements],
       endingId: this.st.endingId,
       updatedAt: Date.now(),
@@ -160,6 +216,14 @@ export class Game {
   }
 
   /* ------------------------------ 内部 ------------------------------ */
+
+  hasSeenTutorial(tutorialId: string): boolean {
+    return this.st.tutorialsSeen.includes(tutorialId)
+  }
+
+  markTutorialSeen(tutorialId: string): void {
+    if (!this.st.tutorialsSeen.includes(tutorialId)) this.st.tutorialsSeen.push(tutorialId)
+  }
 
   private enter(nodeId: string): void {
     this.assertNode(nodeId)
@@ -178,7 +242,7 @@ export class Game {
     if (!this.story.achievements?.length) return unlocked
     for (const ach of this.story.achievements) {
       if (this.st.achievements.includes(ach.id)) continue
-      if (evalCondition(ach.when, this.achievementContext())) {
+      if (evalCondition(ach.when, this.conditionContext())) {
         this.st.achievements.push(ach.id)
         unlocked.push(ach)
       }
@@ -186,7 +250,76 @@ export class Game {
     return unlocked
   }
 
-  private achievementContext(): ConditionContext {
+  /**
+   * 用玩家已获得且本次选中的证据确认推论。成功首次确认时应用 onConfirmed。
+   * 错误组合或未知推论返回 false，且不改变状态。
+   */
+  confirmDeduction(deductionId: string, selectedEvidenceIds: string[]): boolean {
+    const deduction = this.story.deductions?.[deductionId]
+    if (!deduction) return false
+    const selected = new Set(selectedEvidenceIds)
+    if ([...selected].some((id) => !this.st.evidence.includes(id))) return false
+    const allMet = (deduction.requires.all ?? []).every((id) => selected.has(id))
+    const anyMet = (deduction.requires.anyOf ?? []).every((group) =>
+      group.some((id) => selected.has(id)),
+    )
+    if (!allMet || !anyMet) return false
+    if (!this.st.deductions.includes(deductionId)) {
+      this.st.deductions.push(deductionId)
+      const target = this.effectTarget()
+      applyEffects(deduction.onConfirmed, target)
+      this.syncEffectScalars(target)
+      this.checkAchievements()
+    }
+    return true
+  }
+
+  availablePuzzles() {
+    return Object.values(this.story.puzzles ?? {}).filter(
+      (puzzle) =>
+        !this.st.solvedPuzzles.includes(puzzle.id) &&
+        this.puzzleIsAvailableHere(puzzle.id) &&
+        evalCondition(puzzle.requires, this.conditionContext()),
+    )
+  }
+
+  attemptPuzzle(puzzleId: string, answer: string): { solved: boolean; attempts: number } {
+    const puzzle = this.story.puzzles?.[puzzleId]
+    const attempts = this.st.puzzleAttempts[puzzleId] ?? 0
+    if (!puzzle || !this.puzzleIsAvailableHere(puzzleId) || !evalCondition(puzzle.requires, this.conditionContext())) {
+      return { solved: false, attempts }
+    }
+    if (this.st.solvedPuzzles.includes(puzzleId)) return { solved: true, attempts }
+    const normalize = (value: string): string => {
+      const trimmed = value.trim()
+      return puzzle.caseSensitive ? trimmed : trimmed.toLocaleLowerCase()
+    }
+    if (normalize(answer) !== normalize(puzzle.solution)) {
+      this.st.puzzleAttempts[puzzleId] = attempts + 1
+      return { solved: false, attempts: attempts + 1 }
+    }
+    this.st.solvedPuzzles.push(puzzleId)
+    const target = this.effectTarget()
+    applyEffects(puzzle.onSolved, target)
+    this.syncEffectScalars(target)
+    this.checkAchievements()
+    return { solved: true, attempts }
+  }
+
+  revealPuzzleHint(puzzleId: string): { hint: string | null; revealed: number; total: number } {
+    const puzzle = this.story.puzzles?.[puzzleId]
+    if (!puzzle || !this.puzzleIsAvailableHere(puzzleId) || !evalCondition(puzzle.requires, this.conditionContext())) {
+      return { hint: null, revealed: 0, total: 0 }
+    }
+    const hints = puzzle.hints ?? []
+    const revealed = Math.min(this.st.puzzleHints[puzzleId] ?? 0, hints.length)
+    if (revealed >= hints.length) return { hint: null, revealed, total: hints.length }
+    const next = revealed + 1
+    this.st.puzzleHints[puzzleId] = next
+    return { hint: hints[revealed], revealed: next, total: hints.length }
+  }
+
+  private conditionContext(): ConditionContext {
     return {
       vars: this.st.vars,
       inventory: this.st.inventory,
@@ -195,28 +328,95 @@ export class Game {
       visited: this.st.visited,
       docs: this.st.docs,
       day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
       violations: this.st.violations,
+      evidence: this.st.evidence,
+      deductions: this.st.deductions,
+      relations: this.st.relations,
+      memories: this.st.memories,
+      revealedSecrets: this.st.revealedSecrets,
+      solvedPuzzles: this.st.solvedPuzzles,
     }
   }
 
   private applyOnEnter(nodeId: string): void {
     const node = this.story.nodes[nodeId]
     if (node?.onEnter) {
-      const target = {
-        vars: this.st.vars,
-        inventory: this.st.inventory,
-        docs: this.st.docs,
-        day: this.st.day,
-        violations: this.st.violations,
-      }
+      const target = this.effectTarget()
       applyEffects(node.onEnter, target)
-      this.st.day = target.day
+      this.syncEffectScalars(target)
     }
+  }
+
+  private puzzleIsAvailableHere(puzzleId: string): boolean {
+    const explicitlyPlaced = Object.values(this.story.nodes).some((node) => node.puzzles?.includes(puzzleId))
+    return !explicitlyPlaced || Boolean(this.currentNode.puzzles?.includes(puzzleId))
+  }
+
+  private effectTarget() {
+    return {
+      vars: this.st.vars,
+      inventory: this.st.inventory,
+      docs: this.st.docs,
+      day: this.st.day,
+      world: this.st.world,
+      phase: this.st.phase,
+      violations: this.st.violations,
+      evidence: this.st.evidence,
+      relations: this.st.relations,
+      relationLimits: Object.fromEntries(
+        Object.entries(this.story.characters ?? {}).map(([id, character]) => [id, character.relations ?? {}]),
+      ),
+      memories: this.st.memories,
+      revealedSecrets: this.st.revealedSecrets,
+    }
+  }
+
+  private syncEffectScalars(target: { day: number; world?: string; phase?: string }): void {
+    this.st.day = target.day
+    this.st.world = target.world ?? this.st.world
+    this.st.phase = target.phase ?? this.st.phase
+  }
+
+  private initialRelations(): Record<string, Record<string, number>> {
+    return Object.fromEntries(
+      Object.entries(this.story.characters ?? {}).map(([characterId, character]) => [
+        characterId,
+        Object.fromEntries(
+          Object.entries(character.relations ?? {}).map(([stat, definition]) => [stat, definition.initial ?? 0]),
+        ),
+      ]),
+    )
   }
 
   private assertNode(nodeId: string): void {
     if (!this.story.nodes[nodeId]) {
       throw new Error(`剧情数据错误：引用不存在的节点 "${nodeId}"`)
+    }
+  }
+
+  /**
+   * 轻量存档校验（不引入 zod，保持浏览器 runtime bundle 轻量）：
+   * 关键字段类型错误时给出明确错误；缺失的可选字段由恢复逻辑给默认值。
+   */
+  private assertSave(save: GameState): void {
+    const bad: string[] = []
+    if (typeof save.nodeId !== 'string') bad.push('nodeId')
+    if (save.lastChoice !== undefined && save.lastChoice !== null && (
+      typeof save.lastChoice !== 'object' ||
+      typeof save.lastChoice.fromNodeId !== 'string' ||
+      typeof save.lastChoice.targetNodeId !== 'string' ||
+      typeof save.lastChoice.label !== 'string' ||
+      (save.lastChoice.response !== undefined && typeof save.lastChoice.response !== 'string')
+    )) bad.push('lastChoice')
+    if (!Array.isArray(save.history) || !save.history.every((x) => typeof x === 'string')) bad.push('history')
+    if (save.vars === null || typeof save.vars !== 'object' || Array.isArray(save.vars)) bad.push('vars')
+    if (!Array.isArray(save.inventory) || !save.inventory.every((x) => typeof x === 'string')) bad.push('inventory')
+    if (save.day !== undefined && typeof save.day !== 'number') bad.push('day')
+    if (save.endingId !== undefined && save.endingId !== null && typeof save.endingId !== 'string') bad.push('endingId')
+    if (bad.length > 0) {
+      throw new Error(`存档数据无效（字段类型错误：${bad.join('、')}）`)
     }
   }
 }

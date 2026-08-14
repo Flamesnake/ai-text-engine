@@ -1,5 +1,5 @@
 /**
- * ai-text-engine 数据模型（纯数据，可 JSON 序列化）。
+ * TaleSpindle 数据模型（纯数据，可 JSON 序列化）。
  *
  * 设计目标：给 AI 用 —— 所有剧情都是 JSON 数据，AI 通过 MCP 工具读写，
  * 引擎负责求值、校验与渲染。
@@ -12,6 +12,27 @@ export type VarValue = number | string | boolean
 
 /** 运行时变量表 */
 export type Vars = Record<string, VarValue>
+
+/** 运行时内置的短促音效；Schema 与合成器共享同一枚举。 */
+export const SFX_NAMES = [
+  'click', 'page', 'heartbeat', 'drone', 'achievement',
+  'ending_good', 'ending_bad', 'ending_true', 'ending_hidden', 'shock',
+] as const
+export type SfxName = typeof SFX_NAMES[number]
+
+/** 可跨节点持续的程序化环境声；与短促 sfx 分离。 */
+export const SOUNDSCAPE_NAMES = [
+  'rain', 'wind', 'storm', 'waves', 'broadcast',
+  'electric', 'ventilation', 'engine', 'void',
+] as const
+export type SoundscapeName = typeof SOUNDSCAPE_NAMES[number]
+export type SoundscapeIntensity = 'subtle' | 'medium' | 'strong'
+
+export interface SoundscapeSpec {
+  name: SoundscapeName
+  /** 使用语义等级而非频率/音符参数，保持创作输入紧凑、安全。 */
+  intensity?: SoundscapeIntensity
+}
 
 /** 结局分类 */
 export type EndingKind = 'good' | 'bad' | 'true' | 'hidden'
@@ -34,7 +55,7 @@ export type CondOp =
  * 条件表达式（选项的 when / 未来节点的门槛）。
  * 支持组合：and / or / not。
  * 规则：
- * - `has` / `not_has`：var 视为道具名，检查 inventory 是否包含；
+ * - `has` / `not_has`：普通 var 视为道具名；集合型特殊变量用 value 检查成员；
  * - `exists`：检查变量是否已定义；
  * - 其余比较符：vars[var] 与 value 比较（数字按数值、字符串按 ===、布尔按 ===）。
  */
@@ -63,14 +84,95 @@ export interface Effects {
   violation?: string[]
   /** 推进天数（增量，默认 +1；负数为回退；最小 1） */
   day?: number
+  /** 切换叙事世界/位面；值必须在 meta.world.states 中定义。 */
+  world?: string
+  /** 切换叙事阶段；值必须在 meta.phase.states 中定义。 */
+  phase?: string
   /** 获得道具 */
   gain?: string[]
   /** 失去道具 */
   lose?: string[]
   /** 获得线索/文档（进入文档夹） */
   gainDocs?: string[]
+  /** 获得证据（进入线索板；按 id 去重） */
+  gainEvidence?: string[]
+  /** 调整角色关系数值 */
+  adjustRelation?: { characterId: string; stat: string; add: number }[]
+  /** 记录关键行为记忆（作品级稳定 id） */
+  remember?: string[]
+  /** 揭示角色秘密，格式 characterId:secretId */
+  revealSecrets?: string[]
   /** 设置旗标（与 set 语义相同，仅作语义区分） */
   flag?: Record<string, boolean>
+}
+
+/* ------------------------------ 证据 / 推论 ------------------------------ */
+
+export type EvidenceKind = 'document' | 'object' | 'testimony' | 'observation'
+
+export interface Evidence {
+  id: string
+  title: string
+  description: string
+  kind?: EvidenceKind
+  source?: string
+}
+
+export interface DeductionRequirement {
+  /** 必须全部选中的证据 */
+  all?: string[]
+  /** 每组至少选中一条证据 */
+  anyOf?: string[][]
+}
+
+export interface Deduction {
+  id: string
+  statement: string
+  description?: string
+  /** 证据不足时给玩家的非剧透调查方向。 */
+  hint?: string
+  requires: DeductionRequirement
+  /** 推论首次确认时生效 */
+  onConfirmed?: Effects
+}
+
+/* ------------------------------ 人物关系 ------------------------------ */
+
+export interface RelationStatDefinition {
+  label: string
+  initial?: number
+  min?: number
+  max?: number
+}
+
+export interface CharacterSecret {
+  id: string
+  title: string
+  description: string
+}
+
+export interface Character {
+  id: string
+  name: string
+  description: string
+  relations?: Record<string, RelationStatDefinition>
+  secrets?: Record<string, CharacterSecret>
+}
+
+/* ------------------------------ 谜题 ------------------------------ */
+
+export interface Puzzle {
+  id: string
+  title: string
+  /** 场景中作为主要行动显示的文案；默认使用「解开：{title}」。 */
+  actionLabel?: string
+  prompt: string
+  kind: 'code'
+  solution: string
+  caseSensitive?: boolean
+  hints?: string[]
+  requires?: Condition
+  onSolved?: Effects
 }
 
 /* ------------------------------ 文本块 / 文档线索 ------------------------------ */
@@ -78,10 +180,33 @@ export interface Effects {
 /** 节点正文块类型（blocks 存在时优先于 text 渲染） */
 export type TextBlockType = 'para' | 'title' | 'rules' | 'note' | 'letter'
 
+export type TextSegmentStyle =
+  | 'emphasis'
+  | 'italic'
+  | 'blood'
+  | 'whisper'
+  | 'redacted'
+  | 'glitch'
+  | 'corrupt'
+  | 'terminal'
+  | 'handwritten'
+  | 'broadcast'
+
+/** 受控行内文字片段；不允许注入 HTML/CSS。 */
+export interface TextSegment {
+  /** 永远保存真实原文；遮挡和乱码只影响渲染。 */
+  text: string
+  style?: TextSegmentStyle
+  /** 条件未满足时显示安全占位，满足后恢复真实文字。 */
+  revealWhen?: Condition
+}
+
 export interface TextBlock {
   /** 块类型：para 段落 / title 标题 / rules 规则清单 / note 便条 / letter 信件 */
   type?: TextBlockType
   text: string
+  /** 可选行内片段；存在时用于视觉渲染，text 保留纯文本回退。 */
+  segments?: TextSegment[]
   /** 标题（title 类型必填，rules/letter 可带） */
   title?: string
 }
@@ -90,7 +215,8 @@ export interface TextBlock {
 export interface StoryDocument {
   id: string
   title: string
-  kind?: TextBlockType
+  /** 展示类型：para 普通 / title 标题 / rules 规则 / note 便条 / letter 信件 / doc 文档（默认） */
+  kind?: TextBlockType | 'doc'
   text: string
 }
 
@@ -132,6 +258,32 @@ export interface ThemeConfig {
   purple: string
 }
 
+/** 高层视觉表达配置：少量可组合枚举替代重复 CSS，兼顾创作自由与 token 效率。 */
+export interface PresentationConfig {
+  /** 页面媒介/构图外壳。 */
+  shell?: 'novel' | 'dossier' | 'chat' | 'cinematic'
+  /** 字体性格；使用本地字体栈，保持单文件离线可用。 */
+  typography?: 'literary' | 'modern' | 'mono' | 'rounded'
+  density?: 'compact' | 'balanced' | 'spacious'
+  shape?: 'sharp' | 'soft' | 'round'
+  /** 选项的视觉隐喻。 */
+  choiceStyle?: 'buttons' | 'list' | 'dialogue' | 'commands'
+}
+
+/** world/phase 状态对应的受控表现覆盖；逻辑选项仍通过 #world/#phase 条件控制。 */
+export interface StateAppearance {
+  label?: string
+  theme?: string | ThemeConfig
+  presentation?: PresentationConfig
+  soundscape?: SoundscapeSpec | 'silence'
+}
+
+export interface StateAxisConfig {
+  /** 新游戏与旧存档迁移时使用的状态 id。 */
+  initial: string
+  states: Record<string, StateAppearance>
+}
+
 /** HUD 统计条（好感度/理智值等数值变量的可视化） */
 export interface HudStat {
   /** 变量名（vars 中的数值键） */
@@ -155,6 +307,11 @@ export interface EndingMeta {
 export interface Choice {
   /** 按钮文案（同样支持 {var} 插值） */
   label: string
+  /**
+   * 选择后、目标节点正文前显示的即时承接。用于确认玩家行动与场景反应，
+   * 尤其适合多个不同选择汇入同一节点时；支持与正文相同的变量插值。
+   */
+  response?: string
   /** 目标节点 id */
   target: string
   /** 显示条件（不满足时选项被隐藏） */
@@ -163,21 +320,40 @@ export interface Choice {
   effects?: Effects
 }
 
+/** 最近一次选择的叙事承接；属于展示状态，不参与路径逻辑。 */
+export interface ChoiceTrace {
+  fromNodeId: string
+  targetNodeId: string
+  label: string
+  response?: string
+}
+
 export interface StoryNode {
   id: string
+  /** 当前场景的一句话目标，帮助玩家理解下一步。 */
+  objective?: string
   /** 正文；支持 {varName} 插值与 \n 换行（blocks 存在时忽略 text） */
   text: string
   /** 分类型文本块（可选）：para/rules/note/letter/title 混合排版 */
   blocks?: TextBlock[]
-  /** 进入本节点时播放的音效名：click/page/heartbeat/drone/achievement/shock/ending_* */
-  sfx?: string
+  /** 进入本节点时播放的内置音效。 */
+  sfx?: SfxName
+  /**
+   * 声景切换点。对象会持续到后续节点再次声明；`silence` 显式淡出。
+   * 未声明时沿用当前声景，避免逐节点重复配置。
+   */
+  soundscape?: SoundscapeSpec | 'silence'
   /**
    * 卡片动画效果（进入节点后持续）：shake/flicker/glitch/pulse，
    * 或带参数的规格 { name, intensity?, speed? }：intensity 幅度倍率（0.3=轻微，2=剧烈），speed 频率倍率（2=快一倍，0.5=慢一倍），默认 1。
    */
   fx?: FxItem[]
+  /** 仅覆盖本场景与全局 presentation 不同的项；不要在每个节点重复全局配置。 */
+  presentation?: PresentationConfig
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
+  /** 可在本场景直接交互的谜题 id。未被任何节点绑定的旧谜题仍按全局谜题处理。 */
+  puzzles?: string[]
   /** 结局节点必须携带 */
   ending?: EndingMeta
   /** 进入本节点时生效（在正文渲染前应用） */
@@ -191,9 +367,9 @@ export interface StoryNode {
 /** 节点动画效果规格（fx 数组元素：效果名或带参数的规格） */
 export interface FxSpec {
   name: 'shake' | 'flicker' | 'glitch' | 'pulse' | 'unstable'
-  /** 幅度倍率（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
+  /** 幅度倍率 0.1..2（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
   intensity?: number
-  /** 频率倍率（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
+  /** 频率倍率 0.25..4（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
   speed?: number
 }
 
@@ -206,6 +382,14 @@ export interface StoryMeta {
   author?: string
   /** 主题：内置主题名（'dark' | 'cyber' | 'cozy' | 'paper'）或自定义 ThemeConfig */
   theme?: string | ThemeConfig
+  /** 全局视觉表达；未提供的维度使用可靠默认值。 */
+  presentation?: PresentationConfig
+  /** 新游戏的初始持续声景；节点可声明切换或 silence。 */
+  soundscape?: SoundscapeSpec
+  /** 表世界/里世界等叙事位面。 */
+  world?: StateAxisConfig
+  /** 白天/夜晚/警报/断电等叙事阶段。 */
+  phase?: StateAxisConfig
   /** HUD 统计条（好感度等数值变量） */
   hud?: HudStat[]
 }
@@ -222,12 +406,22 @@ export interface Story {
   achievements?: Achievement[]
   /** 线索/文档表（可选）：被 gainDocs 收集并可在文档夹查看 */
   documents?: Record<string, StoryDocument>
+  /** 可收集并用于推理的证据 */
+  evidence?: Record<string, Evidence>
+  /** 玩家可通过证据组合确认的推论 */
+  deductions?: Record<string, Deduction>
+  /** 结构化人物、关系维度与秘密 */
+  characters?: Record<string, Character>
+  /** 可交互谜题 */
+  puzzles?: Record<string, Puzzle>
 }
 
 /* ------------------------------ 运行时状态 ------------------------------ */
 
 export interface GameState {
   nodeId: string
+  /** 最近一次选择；仅在其目标为当前节点时显示 response。 */
+  lastChoice: ChoiceTrace | null
   history: string[]
   /** 去重后的已访问节点（成就/条件用） */
   visited: string[]
@@ -235,10 +429,31 @@ export interface GameState {
   inventory: string[]
   /** 已获得的线索/文档 id */
   docs: string[]
+  /** 已获得的证据 id */
+  evidence: string[]
+  /** 已确认的推论 id */
+  deductions: string[]
+  /** characterId -> stat -> value */
+  relations: Record<string, Record<string, number>>
+  /** 玩家关键行为记忆 */
+  memories: string[]
+  /** 已揭示秘密，格式 characterId:secretId */
+  revealedSecrets: string[]
+  /** 已解决谜题 id */
+  solvedPuzzles: string[]
+  /** 各谜题错误尝试次数 */
+  puzzleAttempts: Record<string, number>
+  /** 各谜题已揭示提示数 */
+  puzzleHints: Record<string, number>
+  /** 已看过的一次性机制教学 id。 */
+  tutorialsSeen: string[]
   /** 已违反的规则 id（规则怪谈「违规度」） */
   violations: string[]
   /** 当前天数（规则怪谈「第几天」循环） */
   day: number
+  /** 当前叙事世界与阶段；旧存档按 meta 中 initial 迁移。 */
+  world: string
+  phase: string
   /** 已解锁成就 id */
   achievements: string[]
   endingId: string | null

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountTextAdventure } from './runtime.js'
+import { mountTextAdventure, resolveSoundscapeForHistory } from './runtime.js'
 import { makeStory } from '../core/fixtures.js'
 
 /** 内存版 Storage（用于注入，避免污染真实 localStorage） */
@@ -18,11 +18,149 @@ function memoryStorage(): { storage: Storage; map: Map<string, string> } {
   return { storage, map }
 }
 
+describe('持续声景状态恢复', () => {
+  it('未声明节点沿用最近切换，silence 显式结束，后续可重新开始', () => {
+    const story = makeStory()
+    story.meta.soundscape = { name: 'rain', intensity: 'subtle' }
+    story.nodes.armed.soundscape = { name: 'storm', intensity: 'strong' }
+    story.nodes.unarmed.soundscape = 'silence'
+    story.nodes.fight.soundscape = { name: 'void' }
+
+    expect(resolveSoundscapeForHistory(story, ['start'])).toEqual({ name: 'rain', intensity: 'subtle' })
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'beg'])).toEqual({
+      name: 'storm', intensity: 'strong',
+    })
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'unarmed'])).toBeNull()
+    expect(resolveSoundscapeForHistory(story, ['start', 'armed', 'unarmed', 'fight'])).toEqual({ name: 'void' })
+  })
+
+  it('world/phase 声景覆盖持久声景，当前节点声明拥有最高优先级', () => {
+    const story = makeStory()
+    story.meta.soundscape = { name: 'rain' }
+    story.meta.world = {
+      initial: 'surface',
+      states: { surface: {}, other: { soundscape: { name: 'void', intensity: 'strong' } } },
+    }
+    story.meta.phase = {
+      initial: 'day',
+      states: { day: {}, night: { soundscape: { name: 'electric' } } },
+    }
+    expect(resolveSoundscapeForHistory(story, ['start'], 'other', 'night')).toEqual({ name: 'electric' })
+    story.nodes.start.soundscape = { name: 'storm' }
+    expect(resolveSoundscapeForHistory(story, ['start'], 'other', 'night')).toEqual({ name: 'storm' })
+  })
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
 })
 
 describe('mountTextAdventure 运行时集成', () => {
+  it('宿主可显式销毁实例并清空持续运行资源', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const { storage } = memoryStorage()
+    const mounted = mountTextAdventure(root, makeStory(), { saveKey: 'test:destroy', storage })
+    expect(root.childElementCount).toBeGreaterThan(0)
+
+    await mounted.destroy()
+    expect(root.childElementCount).toBe(0)
+  })
+
+  it('在目标正文前显示选择承接，并在继续存档后恢复', () => {
+    const story = makeStory()
+    story.nodes.start.choices[0].response = '你握住剑柄。勇气变成 {courage}。'
+    const { storage } = memoryStorage()
+    const firstRoot = document.createElement('div')
+    document.body.append(firstRoot)
+    mountTextAdventure(firstRoot, story, { saveKey: 'test:choice-response', storage })
+    ;(firstRoot.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(firstRoot.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(firstRoot.querySelector('[data-choice-response]')?.textContent).toBe('你握住剑柄。勇气变成 8。')
+
+    const restoredRoot = document.createElement('div')
+    document.body.append(restoredRoot)
+    mountTextAdventure(restoredRoot, story, { saveKey: 'test:choice-response', storage })
+    ;(restoredRoot.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
+    expect(restoredRoot.querySelector('[data-choice-response]')?.textContent).toBe('你握住剑柄。勇气变成 8。')
+  })
+
+  it('应用全局视觉外壳与设计令牌，并允许节点只覆盖差异项', () => {
+    const story = makeStory()
+    story.meta.presentation = {
+      shell: 'dossier',
+      typography: 'mono',
+      density: 'compact',
+      shape: 'sharp',
+      choiceStyle: 'commands',
+    }
+    story.nodes.armed.presentation = { shell: 'cinematic', density: 'spacious' }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+
+    mountTextAdventure(root, story, { saveKey: 'test:presentation', storage })
+    const titleClasses = root.querySelector('.title-screen')!.classList
+    for (const cls of ['shell-dossier', 'type-mono', 'density-compact', 'shape-sharp', 'choice-commands']) {
+      expect(titleClasses.contains(cls)).toBe(true)
+    }
+
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.game-screen')!.classList.contains('shell-dossier')).toBe(true)
+    expect(root.querySelector('.game-screen')!.classList.contains('choice-commands')).toBe(true)
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    const nodeClasses = root.querySelector('.game-screen')!.classList
+    for (const cls of ['shell-cinematic', 'type-mono', 'density-spacious', 'shape-sharp', 'choice-commands']) {
+      expect(nodeClasses.contains(cls)).toBe(true)
+    }
+  })
+
+  it('状态切换同步改变主题、视觉配方与 DOM 状态标记', () => {
+    const story = makeStory()
+    story.meta.world = {
+      initial: 'surface',
+      states: {
+        surface: { theme: 'dark' },
+        other: { theme: 'cyber', presentation: { shell: 'chat' } },
+      },
+    }
+    story.meta.phase = {
+      initial: 'day',
+      states: { day: {}, night: { presentation: { shape: 'round' } } },
+    }
+    story.nodes.start.choices[0].effects = {
+      ...story.nodes.start.choices[0].effects,
+      world: 'other', phase: 'night',
+    }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:world-state', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+
+    const main = root.querySelector<HTMLElement>('.game-screen')!
+    expect(main.dataset).toMatchObject({ world: 'other', phase: 'night' })
+    expect(main.classList.contains('shell-chat')).toBe(true)
+    expect(main.classList.contains('shape-round')).toBe(true)
+    expect(main.classList.contains('state-transition')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#00e5ff')
+  })
+
+  it.each(['novel', 'dossier', 'chat', 'cinematic'] as const)(
+    '支持 %s 界面外壳',
+    (shell) => {
+      const story = makeStory()
+      story.meta.presentation = { shell }
+      const root = document.createElement('div')
+      document.body.appendChild(root)
+      const { storage } = memoryStorage()
+      mountTextAdventure(root, story, { saveKey: `test:shell:${shell}`, storage })
+      ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+      expect(root.querySelector('.game-screen')!.classList.contains(`shell-${shell}`)).toBe(true)
+    },
+  )
+
   it('完整游玩流程：标题屏 → 开始 → 拿剑 → 战斗 → 好结局，且存档写入', () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
@@ -246,6 +384,40 @@ describe('文本块与线索夹', () => {
     expect(root.querySelector('.block-note')).not.toBeNull()
   })
 
+  it('受控富文本按条件隐藏并在获得证据后揭示', () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    const story = makeStory()
+    story.evidence = {
+      e_time: { id: 'e_time', title: '停摆的钟', description: '停在凌晨三点。' },
+    }
+    story.nodes.start.blocks = [{
+      type: 'para',
+      text: '病历写着：凌晨三点。',
+      segments: [
+        { text: '病历写着：' },
+        { text: '凌晨三点', style: 'redacted', revealWhen: { op: 'eq', var: '#evidence', value: 'e_time' } },
+        { text: '。血迹未干。', style: 'blood' },
+        { text: ' SIGNAL LOST ', style: 'broadcast' },
+      ],
+    }]
+    story.nodes.start.choices.unshift({
+      label: '检查停摆的钟', target: 'start', effects: { gainEvidence: ['e_time'] },
+    })
+
+    mountTextAdventure(root, story, { saveKey: 'test:segments', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.segment-redacted')?.textContent).not.toContain('凌晨三点')
+    expect(root.querySelector('.segment-redacted')?.getAttribute('aria-label')).toBe('内容尚未揭示')
+    expect(root.querySelector('.segment-blood')?.textContent).toContain('血迹未干')
+    expect(root.querySelector('.segment-broadcast')?.textContent).toContain('SIGNAL LOST')
+
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(root.querySelector('.segment-revealed')?.textContent).toContain('凌晨三点')
+    expect(root.querySelector('.segment-redacted')).toBeNull()
+  })
+
   it('获得线索后出现入口，可打开线索夹查看详情并返回', () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
@@ -361,5 +533,171 @@ describe('文本块与线索夹', () => {
     // 再点恢复
     mute!.click()
     expect(mute?.textContent).toBe('🔊')
+  })
+})
+
+describe('证据推理板', () => {
+  it('玩家组合已获得证据形成推论，返回场景后看到新选项', () => {
+    const story = makeStory()
+    story.evidence = {
+      clock: { id: 'clock', title: '停住的时钟', description: '停在 22:10。', kind: 'observation' },
+      testimony: { id: 'testimony', title: '女仆证词', description: '管家 22:20 才回来。', kind: 'testimony' },
+    }
+    story.deductions = {
+      false_alibi: {
+        id: 'false_alibi', statement: '管家的不在场证明不成立',
+        hint: '继续调查时钟，并争取目击者开口。',
+        requires: { all: ['clock', 'testimony'] },
+      },
+    }
+    story.nodes.start.objective = '查明管家的不在场证明是否可信'
+    story.nodes.start.onEnter = { gainEvidence: ['clock', 'testimony'] }
+    story.nodes.start.choices.unshift({
+      label: '揭穿管家', target: 'fight',
+      when: { op: 'eq', var: '#deduction', value: 'false_alibi' },
+    })
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:deduction-board', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect(root.querySelector('.scene-objective')?.textContent).toContain('查明管家的不在场证明')
+    expect(root.querySelector('[data-tutorial="deduction"]')?.textContent).toContain('推理板')
+    ;(root.querySelector('[data-action="dismiss-tutorial"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-tutorial="deduction"]')).toBeNull()
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('揭穿管家')
+    const deductionAction = root.querySelector<HTMLElement>('[data-deduction-choice]')
+    expect(deductionAction?.textContent).toContain('整理线索并推理')
+    deductionAction!.click()
+    expect(root.querySelectorAll('[data-evidence]').length).toBe(2)
+    expect(root.querySelector('[data-deduction="false_alibi"]')?.textContent).toContain('管家的不在场证明不成立')
+    expect(root.querySelector('.deduction-guide')?.textContent).toContain('勾选支持它的证据')
+    expect(root.querySelector('[data-deduction-progress="false_alibi"]')?.textContent).toContain('必需证据 2/2')
+    expect(root.querySelector('[data-deduction-hint="false_alibi"]')?.textContent).toContain('继续调查时钟')
+
+    root.querySelectorAll<HTMLInputElement>('[data-evidence]').forEach((input) => input.click())
+    ;(root.querySelector('[data-action="confirm-deduction"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-deduction-result]')?.textContent).toContain('推论成立')
+
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('揭穿管家')
+  })
+
+  it('获得新证据时明确提示已加入推理板，首次教学状态随存档恢复', () => {
+    const story = makeStory()
+    story.evidence = {
+      clock: { id: 'clock', title: '停住的时钟', description: '停在十点。' },
+    }
+    story.deductions = {
+      truth: { id: 'truth', statement: '时钟被人为停下', requires: { all: ['clock'] } },
+    }
+    story.nodes.armed.onEnter = { gainEvidence: ['clock'] }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:evidence-notice', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+
+    expect(root.querySelector('.evidence-notice')?.textContent).toContain('停住的时钟')
+    expect(root.querySelector('.evidence-notice')?.textContent).toContain('已加入推理板')
+    expect(root.querySelector('[data-tutorial="deduction"]')).not.toBeNull()
+    ;(root.querySelector('[data-action="dismiss-tutorial"]') as HTMLButtonElement).click()
+
+    root.innerHTML = ''
+    mountTextAdventure(root, story, { saveKey: 'test:evidence-notice', storage })
+    ;(root.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-tutorial="deduction"]')).toBeNull()
+  })
+})
+
+describe('人物关系页', () => {
+  it('玩家查看关系与秘密状态，揭示秘密后仍可从结局返回人物页查看', () => {
+    const story = makeStory()
+    story.characters = {
+      maid: {
+        id: 'maid', name: '林夏', description: '山庄女仆。',
+        relations: { trust: { label: '信任', initial: 0, min: -3, max: 3 } },
+        secrets: {
+          corridor: { id: 'corridor', title: '隐藏走廊', description: '她看见管家进入隐藏走廊。' },
+        },
+      },
+    }
+    story.nodes.start.choices = [{
+      label: '替她保密', target: 'fight',
+      effects: {
+        adjustRelation: [{ characterId: 'maid', stat: 'trust', add: 2 }],
+        remember: ['protected_maid'],
+      },
+    }]
+    story.nodes.fight.onEnter = { revealSecrets: ['maid:corridor'] }
+
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:characters', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('林夏')
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 0')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('未知秘密')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+
+    ;(root.querySelector('[data-choice]') as HTMLButtonElement).click()
+    expect(root.querySelector('.ending-title')).not.toBeNull()
+    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 2')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('隐藏走廊')
+    expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('她看见管家进入隐藏走廊')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.ending-title')).not.toBeNull()
+  })
+})
+
+describe('密码谜题页', () => {
+  it('玩家提交答案、查看渐进提示，解开后返回场景看到新选项', () => {
+    const story = makeStory()
+    story.puzzles = {
+      safe: {
+        id: 'safe', title: '书房保险箱', prompt: '输入四位密码。', kind: 'code',
+        solution: '2210', actionLabel: '尝试打开保险箱',
+        hints: ['观察时钟。', '按小时和分钟组合。'],
+      },
+    }
+    story.nodes.start.puzzles = ['safe']
+    story.nodes.start.choices.unshift({
+      label: '打开保险箱', target: 'fight',
+      when: { op: 'eq', var: '#puzzle', value: 'safe' },
+    })
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:puzzle', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('打开保险箱')
+    expect([...root.querySelectorAll('[data-puzzle-choice]')].map((el) => el.textContent)).toEqual([
+      '尝试打开保险箱',
+    ])
+    ;(root.querySelector('[data-puzzle-choice="safe"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle="safe"]')?.textContent).toContain('书房保险箱')
+
+    const answer = root.querySelector<HTMLInputElement>('[data-puzzle-answer="safe"]')!
+    answer.value = '1234'
+    ;(root.querySelector('[data-action="attempt-puzzle"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('答案不正确')
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('1 次')
+
+    ;(root.querySelector('[data-action="puzzle-hint"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-hints]')?.textContent).toContain('观察时钟')
+
+    root.querySelector<HTMLInputElement>('[data-puzzle-answer="safe"]')!.value = '2210'
+    ;(root.querySelector('[data-action="attempt-puzzle"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-puzzle-result]')?.textContent).toContain('谜题已解开')
+    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('打开保险箱')
   })
 })

@@ -1,4 +1,4 @@
-import type { Condition, Effects, Story } from './types.js'
+import type { Condition, Deduction, Effects, Story } from './types.js'
 
 /**
  * 剧情数据静态校验（开发期 / AI 编辑后调用）。
@@ -23,10 +23,11 @@ export function validate(story: Story): string[] {
   const writtenVars = new Set<string>()
   const writtenItems = new Set<string>()
   const writtenDocs = new Set<string>()
+  const gainedEvidence = new Set<string>()
   for (const node of Object.values(story.nodes)) {
-    collectEffects(node.onEnter, writtenVars, writtenItems, writtenDocs)
+    collectEffects(node.onEnter, writtenVars, writtenItems, writtenDocs, gainedEvidence)
     for (const choice of node.choices) {
-      collectEffects(choice.effects, writtenVars, writtenItems, writtenDocs)
+      collectEffects(choice.effects, writtenVars, writtenItems, writtenDocs, gainedEvidence)
       if (choice.target && !story.nodes[choice.target]) {
         problems.push(
           `节点 "${node.id}" 的选项「${choice.label}」指向不存在的节点 "${choice.target}"`,
@@ -67,6 +68,151 @@ export function validate(story: Story): string[] {
     }
   }
 
+  // 证据与推论：定义完整、所有引用存在、推论至少有一项证据要求
+  for (const evidenceId of gainedEvidence) {
+    if (!story.evidence?.[evidenceId]) {
+      problems.push(`gainEvidence 引用了不存在的证据 "${evidenceId}"`)
+    }
+  }
+  for (const [evidenceId, evidence] of Object.entries(story.evidence ?? {})) {
+    if (evidence.id !== evidenceId) problems.push(`证据键 "${evidenceId}" 与 id "${evidence.id}" 不一致`)
+    if (!evidence.title) problems.push(`证据 "${evidenceId}" 缺少 title`)
+    if (!evidence.description) problems.push(`证据 "${evidenceId}" 缺少 description`)
+  }
+  for (const [deductionId, deduction] of Object.entries(story.deductions ?? {})) {
+    if (deduction.id !== deductionId) problems.push(`推论键 "${deductionId}" 与 id "${deduction.id}" 不一致`)
+    if (!deduction.statement) problems.push(`推论 "${deductionId}" 缺少 statement`)
+    const refs = [
+      ...(deduction.requires.all ?? []),
+      ...(deduction.requires.anyOf ?? []).flat(),
+    ]
+    if (refs.length === 0) problems.push(`推论 "${deductionId}" 没有任何证据要求`)
+    for (const evidenceId of new Set(refs)) {
+      if (!story.evidence?.[evidenceId]) {
+        problems.push(`推论 "${deductionId}" 引用了不存在的证据 "${evidenceId}"`)
+      }
+    }
+    collectEffects(deduction.onConfirmed, writtenVars, writtenItems, writtenDocs, gainedEvidence)
+  }
+
+  // 人物定义与关系/秘密引用
+  for (const [characterId, character] of Object.entries(story.characters ?? {})) {
+    if (character.id !== characterId) problems.push(`角色键 "${characterId}" 与 id "${character.id}" 不一致`)
+    for (const [secretId, secret] of Object.entries(character.secrets ?? {})) {
+      if (secret.id !== secretId) problems.push(`角色 "${characterId}" 的秘密键 "${secretId}" 与 id "${secret.id}" 不一致`)
+    }
+  }
+  for (const [puzzleId, puzzle] of Object.entries(story.puzzles ?? {})) {
+    if (puzzle.id !== puzzleId) problems.push(`谜题键 "${puzzleId}" 与 id "${puzzle.id}" 不一致`)
+    if (!puzzle.title) problems.push(`谜题 "${puzzleId}" 缺少 title`)
+    if (!puzzle.prompt) problems.push(`谜题 "${puzzleId}" 缺少 prompt`)
+    if (!puzzle.solution.trim()) problems.push(`谜题 "${puzzleId}" 的 solution 不能为空`)
+    if ((puzzle.hints ?? []).some((hint) => !hint.trim())) problems.push(`谜题 "${puzzleId}" 包含空提示`)
+    for (const evidenceId of puzzle.onSolved?.gainEvidence ?? []) {
+      if (!story.evidence?.[evidenceId]) {
+        problems.push(`gainEvidence 引用了不存在的证据 "${evidenceId}"`)
+      }
+    }
+    for (const docId of puzzle.onSolved?.gainDocs ?? []) {
+      if (!story.documents?.[docId]) {
+        problems.push(`gainDocs 引用了不存在的文档 "${docId}"（story.documents 中未定义）`)
+      }
+    }
+    collectEffects(puzzle.onSolved, writtenVars, writtenItems, writtenDocs, gainedEvidence)
+  }
+  const validateRelationshipEffects = (effects: Effects | undefined): void => {
+    for (const change of effects?.adjustRelation ?? []) {
+      const character = story.characters?.[change.characterId]
+      if (!character) problems.push(`关系效果引用了不存在的角色 "${change.characterId}"`)
+      else if (!character.relations?.[change.stat]) {
+        problems.push(`关系效果引用了角色 "${change.characterId}" 未定义的维度 "${change.stat}"`)
+      }
+    }
+    for (const ref of effects?.revealSecrets ?? []) {
+      const [characterId, secretId] = splitRef(ref)
+      if (!characterId || !secretId || !story.characters?.[characterId]?.secrets?.[secretId]) {
+        problems.push(`秘密效果引用了不存在的秘密 "${ref}"`)
+      }
+    }
+  }
+  for (const node of Object.values(story.nodes)) {
+    for (const puzzleId of node.puzzles ?? []) {
+      if (!story.puzzles?.[puzzleId]) problems.push(`节点 "${node.id}" 引用了不存在的谜题 "${puzzleId}"`)
+    }
+    validateRelationshipEffects(node.onEnter)
+    for (const choice of node.choices) {
+      validateRelationshipEffects(choice.effects)
+      for (const relationVar of collectRelationVars(choice.when)) {
+        const [, characterId, stat] = relationVar.split(':')
+        const character = story.characters?.[characterId]
+        if (!character) problems.push(`关系条件引用了不存在的角色 "${characterId}"`)
+        else if (!character.relations?.[stat]) {
+          problems.push(`关系条件引用了角色 "${characterId}" 未定义的维度 "${stat}"`)
+        }
+      }
+      for (const secretRef of collectSpecialRefs(choice.when, '#secret')) {
+        const [characterId, secretId] = splitRef(secretRef)
+        if (!story.characters?.[characterId]?.secrets?.[secretId]) {
+          problems.push(`秘密条件引用了不存在的秘密 "${secretRef}"`)
+        }
+      }
+    }
+  }
+
+  // 世界/阶段状态：initial、效果目标与条件引用必须共享同一组 id。
+  const stateIds = {
+    world: new Set(Object.keys(story.meta.world?.states ?? { default: {} })),
+    phase: new Set(Object.keys(story.meta.phase?.states ?? { default: {} })),
+  }
+  for (const axis of ['world', 'phase'] as const) {
+    const config = story.meta[axis]
+    if (config && !stateIds[axis].has(config.initial)) {
+      problems.push(`${axis} 初始状态 "${config.initial}" 未在 meta.${axis}.states 中定义`)
+    }
+  }
+  const effectEntries: Array<{ effects: Effects | undefined; location: string }> = []
+  const conditionEntries: Array<{ condition: Condition | undefined; location: string }> = []
+  for (const node of Object.values(story.nodes)) {
+    effectEntries.push({ effects: node.onEnter, location: `节点 "${node.id}" onEnter` })
+    for (const choice of node.choices) {
+      effectEntries.push({ effects: choice.effects, location: `节点 "${node.id}" 选项「${choice.label}」` })
+      conditionEntries.push({ condition: choice.when, location: `节点 "${node.id}" 选项「${choice.label}」` })
+    }
+    for (const [blockIndex, block] of (node.blocks ?? []).entries()) {
+      for (const [segmentIndex, segment] of (block.segments ?? []).entries()) {
+        conditionEntries.push({
+          condition: segment.revealWhen,
+          location: `节点 "${node.id}" 第 ${blockIndex + 1} 个文本块第 ${segmentIndex + 1} 个片段`,
+        })
+      }
+    }
+  }
+  for (const [id, deduction] of Object.entries(story.deductions ?? {})) {
+    effectEntries.push({ effects: deduction.onConfirmed, location: `推论 "${id}"` })
+  }
+  for (const [id, puzzle] of Object.entries(story.puzzles ?? {})) {
+    effectEntries.push({ effects: puzzle.onSolved, location: `谜题 "${id}"` })
+    conditionEntries.push({ condition: puzzle.requires, location: `谜题 "${id}"` })
+  }
+  for (const achievement of story.achievements ?? []) {
+    conditionEntries.push({ condition: achievement.when, location: `成就 "${achievement.id}"` })
+  }
+  for (const { effects, location } of effectEntries) {
+    for (const axis of ['world', 'phase'] as const) {
+      const target = effects?.[axis]
+      if (target !== undefined && !stateIds[axis].has(target)) {
+        problems.push(`${location} 切换到未定义的 ${axis} 状态 "${target}"`)
+      }
+    }
+  }
+  for (const { condition, location } of conditionEntries) {
+    for (const axis of ['world', 'phase'] as const) {
+      for (const ref of collectSpecialRefs(condition, `#${axis}`)) {
+        if (!stateIds[axis].has(ref)) problems.push(`${location} 的条件引用了未定义的 ${axis} 状态 "${ref}"`)
+      }
+    }
+  }
+
   // 结局表孤儿条目
   for (const endId of Object.keys(story.endings)) {
     const used = Object.values(story.nodes).some((n) => n.ending?.id === endId)
@@ -96,6 +242,15 @@ export function validate(story: Story): string[] {
   for (const node of Object.values(story.nodes)) {
     for (const choice of node.choices) {
       if (choice.when) {
+        for (const ref of collectSpecialRefs(choice.when, '#evidence')) {
+          if (!story.evidence?.[ref]) problems.push(`条件引用了不存在的证据 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(choice.when, '#deduction')) {
+          if (!story.deductions?.[ref]) problems.push(`条件引用了不存在的推论 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(choice.when, '#puzzle')) {
+          if (!story.puzzles?.[ref]) problems.push(`谜题条件引用了不存在的谜题 "${ref}"`)
+        }
         for (const v of collectConditionVars(choice.when)) {
           if (!writtenVars.has(v) && !writtenItems.has(v)) {
             problems.push(
@@ -105,10 +260,41 @@ export function validate(story: Story): string[] {
         }
       }
     }
-    for (const m of node.text.matchAll(/\{([^}#]+)\}/g)) {
-      const v = m[1].trim()
-      if (!writtenVars.has(v)) {
-        problems.push(`节点 "${node.id}" 的正文插值引用了从未被写入的变量 "{${v}}"`)
+
+    for (const [blockIndex, block] of (node.blocks ?? []).entries()) {
+      for (const [segmentIndex, segment] of (block.segments ?? []).entries()) {
+        if (!segment.revealWhen) continue
+        const location = `节点 "${node.id}" 第 ${blockIndex + 1} 个文本块第 ${segmentIndex + 1} 个片段`
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#evidence')) {
+          if (!story.evidence?.[ref]) problems.push(`${location}的揭示条件引用了不存在的证据 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#deduction')) {
+          if (!story.deductions?.[ref]) problems.push(`${location}的揭示条件引用了不存在的推论 "${ref}"`)
+        }
+        for (const ref of collectSpecialRefs(segment.revealWhen, '#puzzle')) {
+          if (!story.puzzles?.[ref]) problems.push(`${location}的揭示条件引用了不存在的谜题 "${ref}"`)
+        }
+        for (const v of collectConditionVars(segment.revealWhen)) {
+          if (!writtenVars.has(v) && !writtenItems.has(v)) {
+            problems.push(`${location}的揭示条件引用了从未被写入的变量/道具 "${v}"`)
+          }
+        }
+      }
+    }
+
+    const textSources = [
+      node.text,
+      ...(node.blocks ?? []).flatMap((block) => [
+        block.text,
+        ...(block.segments ?? []).map((segment) => segment.text),
+      ]),
+    ]
+    for (const source of textSources) {
+      for (const m of source.matchAll(/\{([^}#]+)\}/g)) {
+        const v = m[1].trim()
+        if (!writtenVars.has(v)) {
+          problems.push(`节点 "${node.id}" 的正文插值引用了从未被写入的变量 "{${v}}"`)
+        }
       }
     }
   }
@@ -144,6 +330,7 @@ function collectEffects(
   vars: Set<string>,
   items: Set<string>,
   docs?: Set<string>,
+  evidence?: Set<string>,
 ): void {
   if (!effects) return
   for (const k of Object.keys(effects.set ?? {})) vars.add(k)
@@ -152,6 +339,7 @@ function collectEffects(
   for (const item of effects.gain ?? []) items.add(item)
   for (const item of effects.lose ?? []) items.add(item)
   for (const d of effects.gainDocs ?? []) docs?.add(d)
+  for (const id of effects.gainEvidence ?? []) evidence?.add(id)
   for (const r of effects.rand ?? []) vars.add(r.var)
 }
 
@@ -167,4 +355,220 @@ function collectConditionVars(cond: Condition): string[] {
   for (const c of cond.or ?? []) out.push(...collectConditionVars(c))
   if (cond.not) out.push(...collectConditionVars(cond.not))
   return out
+}
+
+/**
+ * 非阻断的玩家体验检查：用于提醒 Agent 改善目标与关键机制可发现性。
+ * 这些警告不代表剧情结构无效，也不会阻止导出。
+ */
+export function validateExperience(story: Story): string[] {
+  const warnings: string[] = []
+  for (const node of Object.values(story.nodes)) {
+    if (node.choices.length >= 4 && !node.objective?.trim()) {
+      warnings.push(`节点 "${node.id}" 有 ${node.choices.length} 个可选行动但没有 objective，玩家可能不清楚当前目标`)
+    }
+    for (const choice of node.choices) {
+      const target = story.nodes[choice.target]
+      if (target?.ending?.kind !== 'bad') continue
+      if (!/(结束|结案|离开|放弃|等待|认定|接受|指控)/.test(choice.label)) {
+        warnings.push(`节点 "${node.id}" 的选项「${choice.label}」直接进入坏结局，但文案没有明确提示会结束当前调查`)
+      }
+    }
+  }
+  for (const [deductionId, deduction] of Object.entries(story.deductions ?? {})) {
+    if (!deduction.hint?.trim()) warnings.push(`推论 "${deductionId}" 缺少 hint，证据不足时玩家没有调查方向`)
+    const alternatives = deduction.requires.anyOf ?? []
+    if (alternatives.length >= 2 && alternatives.every((group) => group.length === 1)) {
+      warnings.push(
+        `推论 "${deductionId}" 的 anyOf 全是单元素组；当前语义是每组都必须满足。` +
+        `若想表达“这些证据任选其一”，应放在同一组中`,
+      )
+    }
+  }
+  for (const puzzleId of Object.keys(story.puzzles ?? {})) {
+    if (!Object.values(story.nodes).some((node) => node.puzzles?.includes(puzzleId))) {
+      warnings.push(`谜题 "${puzzleId}" 没有放置到任何节点，只能依赖全局工具入口`)
+    }
+  }
+
+  const trueEndingNodeIds = new Set(
+    Object.values(story.nodes)
+      .filter((node) => node.ending?.kind === 'true')
+      .map((node) => node.id),
+  )
+  const trueEndingEntries = Object.values(story.nodes).flatMap((node) =>
+    node.choices
+      .filter((choice) => trueEndingNodeIds.has(choice.target))
+      .map((choice) => ({ nodeId: node.id, choice })),
+  )
+  if (trueEndingEntries.length > 0 && Object.keys(story.deductions ?? {}).length >= 2) {
+    for (const { nodeId, choice } of trueEndingEntries) {
+      const minRequiredDeductions = Math.min(
+        ...conditionPositiveRefAlternatives(choice.when, '#deduction')
+          .map((refs) => refs.size),
+      )
+      if (minRequiredDeductions <= 1) {
+        warnings.push(
+          `节点 "${nodeId}" 的真结局入口仅要求 ${minRequiredDeductions} 条推论；` +
+          `复杂调查的真结局容易凭局部证据过度推断`,
+        )
+      }
+    }
+  }
+
+  if (trueEndingEntries.length > 0 && Object.keys(story.puzzles ?? {}).length > 0) {
+    const puzzleEvidence = new Set(
+      Object.values(story.puzzles ?? {}).flatMap((puzzle) => puzzle.onSolved?.gainEvidence ?? []),
+    )
+    const everyEntryBypassesPuzzleEvidence = trueEndingEntries.every(({ choice }) => {
+      const directPuzzleRequired = conditionRequiresPositiveRef(choice.when, '#puzzle')
+      if (directPuzzleRequired) return false
+      const alternatives = conditionPositiveRefAlternatives(choice.when, '#deduction')
+      return alternatives.some((deductionIds) =>
+        [...deductionIds].every((deductionId) =>
+          !deductionRequiresEvidenceFrom(story.deductions?.[deductionId], puzzleEvidence),
+        ),
+      )
+    })
+    if (everyEntryBypassesPuzzleEvidence) {
+      warnings.push(
+        `所有真结局入口都可绕过 ${Object.keys(story.puzzles ?? {}).length} 个谜题；` +
+        `应让至少一条必要推论使用谜题产出的证据`,
+      )
+    }
+  }
+
+  if (trueEndingEntries.length > 0 && storyUsesRelationshipMechanics(story)) {
+    const everyEntryBypassesRelationships = trueEndingEntries.every(({ choice }) =>
+      !conditionRequiresPositiveRelationshipState(choice.when),
+    )
+    if (everyEntryBypassesRelationships) {
+      warnings.push(
+        '所有真结局入口都可绕过人物关系/秘密/记忆系统；' +
+        '若人物调查是核心玩法，应让至少一项关系成果成为必要条件',
+      )
+    }
+  }
+
+  // Token/数据效率：同一局部视觉覆盖重复 3 次以上时，应提升到全局 meta.presentation。
+  const presentationGroups = new Map<string, string[]>()
+  for (const node of Object.values(story.nodes)) {
+    if (!node.presentation || Object.keys(node.presentation).length === 0) continue
+    const key = JSON.stringify(Object.fromEntries(Object.entries(node.presentation).sort(([a], [b]) => a.localeCompare(b))))
+    const ids = presentationGroups.get(key) ?? []
+    ids.push(node.id)
+    presentationGroups.set(key, ids)
+  }
+  for (const ids of presentationGroups.values()) {
+    if (ids.length >= 3) {
+      warnings.push(
+        `${ids.length} 个节点重复相同 presentation（${ids.slice(0, 3).join('、')}）；` +
+        '请提升到 meta.presentation，节点只保留差异项以减少重复数据和 token 消耗',
+      )
+    }
+  }
+  return warnings
+}
+
+function collectSpecialRefs(cond: Condition | undefined, specialVar: string): string[] {
+  if (!cond) return []
+  const out: string[] = []
+  if (
+    cond.var === specialVar &&
+    (cond.op === 'eq' || cond.op === 'ne') &&
+    cond.value !== undefined
+  ) out.push(String(cond.value))
+  for (const child of cond.and ?? []) out.push(...collectSpecialRefs(child, specialVar))
+  for (const child of cond.or ?? []) out.push(...collectSpecialRefs(child, specialVar))
+  if (cond.not) out.push(...collectSpecialRefs(cond.not, specialVar))
+  return out
+}
+
+/**
+ * 返回条件每条可满足逻辑分支正向要求的引用集合。
+ * ne/not 与无关条件不算掌握成果；and 合并要求，or 保留替代路径。
+ */
+function conditionPositiveRefAlternatives(
+  cond: Condition | undefined,
+  specialVar: string,
+): Set<string>[] {
+  if (!cond) return [new Set()]
+  let alternatives: Set<string>[] = [new Set()]
+  const own =
+    cond.var === specialVar && cond.op === 'eq' && cond.value !== undefined
+      ? String(cond.value)
+      : undefined
+  if (own) alternatives[0].add(own)
+
+  for (const child of cond.and ?? []) {
+    const childAlternatives = conditionPositiveRefAlternatives(child, specialVar)
+    alternatives = alternatives.flatMap((base) =>
+      childAlternatives.map((extra) => new Set([...base, ...extra])),
+    )
+  }
+  if ((cond.or?.length ?? 0) > 0) {
+    const orAlternatives = cond.or!.flatMap((child) =>
+      conditionPositiveRefAlternatives(child, specialVar),
+    )
+    alternatives = alternatives.flatMap((base) =>
+      orAlternatives.map((extra) => new Set([...base, ...extra])),
+    )
+  }
+  return alternatives
+}
+
+function conditionRequiresPositiveRef(cond: Condition | undefined, specialVar: string): boolean {
+  return conditionPositiveRefAlternatives(cond, specialVar)
+    .every((refs) => refs.size > 0)
+}
+
+function deductionRequiresEvidenceFrom(
+  deduction: Deduction | undefined,
+  evidenceIds: Set<string>,
+): boolean {
+  if (!deduction) return false
+  if ((deduction.requires.all ?? []).some((id) => evidenceIds.has(id))) return true
+  return (deduction.requires.anyOf ?? []).some((group) =>
+    group.length > 0 && group.every((id) => evidenceIds.has(id)),
+  )
+}
+
+function storyUsesRelationshipMechanics(story: Story): boolean {
+  if (Object.keys(story.characters ?? {}).length === 0) return false
+  const effects = Object.values(story.nodes).flatMap((node) => [
+    node.onEnter,
+    ...node.choices.map((choice) => choice.effects),
+  ])
+  return effects.some((effect) =>
+    (effect?.adjustRelation?.length ?? 0) > 0 ||
+    (effect?.remember?.length ?? 0) > 0 ||
+    (effect?.revealSecrets?.length ?? 0) > 0,
+  )
+}
+
+function conditionRequiresPositiveRelationshipState(cond: Condition | undefined): boolean {
+  if (!cond) return false
+  const ownPositive =
+    (cond.var?.startsWith('#relation:') && ['eq', 'gt', 'gte'].includes(cond.op ?? '')) ||
+    (['#memory', '#secret'].includes(cond.var ?? '') && cond.op === 'eq')
+  if (ownPositive) return true
+  if ((cond.and ?? []).some(conditionRequiresPositiveRelationshipState)) return true
+  if ((cond.or?.length ?? 0) > 0) {
+    return cond.or!.every(conditionRequiresPositiveRelationshipState)
+  }
+  return false
+}
+
+function collectRelationVars(cond: Condition | undefined): string[] {
+  if (!cond) return []
+  const out = cond.var?.startsWith('#relation:') ? [cond.var] : []
+  for (const child of cond.and ?? []) out.push(...collectRelationVars(child))
+  for (const child of cond.or ?? []) out.push(...collectRelationVars(child))
+  if (cond.not) out.push(...collectRelationVars(cond.not))
+  return out
+}
+
+function splitRef(ref: string): [string, string] {
+  const index = ref.indexOf(':')
+  return index < 0 ? ['', ''] : [ref.slice(0, index), ref.slice(index + 1)]
 }

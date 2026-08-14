@@ -1,9 +1,15 @@
-import type { Achievement, HudStat, StoryDocument, StoryNode, ThemeConfig } from '../core/types.js'
-import { validate } from '../core/validate.js'
-import { walkAllEndings } from '../core/walk.js'
+import type {
+  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, SoundscapeSpec, StateAxisConfig, StoryDocument, StoryNode, ThemeConfig,
+} from '../core/types.js'
+import { validate, validateExperience } from '../core/validate.js'
+import { evaluateStory } from '../core/evaluate.js'
+import { ChoicePatchSchema, StrictStoryNodeSchema, type ChoicePatch } from '../core/schema.js'
+import { reviewTransitions, type TransitionReviewOptions } from '../core/transition-review.js'
+import { walkAllEndings, type WalkOptions } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
 import * as projects from './projects.js'
+import { ProjectError } from './projects.js'
 
 /**
  * MCP 工具实现（与 transport 解耦，可直接单测）。
@@ -18,7 +24,11 @@ export interface NewProjectArgs {
 
 export async function newProject(args: NewProjectArgs): Promise<unknown> {
   if (!args.title?.trim()) throw new Error('title 不能为空')
-  const existing = await projects.loadStory(args.title).catch(() => null)
+  // 仅「不存在」视为可新建；数据损坏等错误原样抛出，不再伪装成不存在
+  const existing = await projects.loadStory(args.title).catch((err: unknown) => {
+    if (err instanceof ProjectError && err.code === 'NOT_FOUND') return null
+    throw err
+  })
   if (existing) {
     return {
       ok: true,
@@ -32,12 +42,12 @@ export async function newProject(args: NewProjectArgs): Promise<unknown> {
     subtitle: args.subtitle,
     author: args.author,
   })
-  await projects.saveStory(story)
+  const dir = await projects.saveStory(story)
   return {
     ok: true,
     existed: false,
     message: `已创建项目 "${story.meta.title}"`,
-    path: projects.storyPath(story.meta.title),
+    path: path.join(dir, 'story.json'),
     nodeCount: Object.keys(story.nodes).length,
   }
 }
@@ -54,8 +64,9 @@ export interface UpsertNodeArgs {
 
 export async function upsertNode(args: UpsertNodeArgs): Promise<unknown> {
   const story = await projects.loadStory(args.title)
-  const node = args.node
-  if (!node?.id) throw new Error('node.id 不能为空')
+  // handler 也是脚本/测试可直接调用的公共边界，不能只依赖 MCP transport 校验。
+  // strict 解析会在落盘前拒绝缺字段和未知字段，避免本次写入成功、下次读取 CORRUPT。
+  const node = StrictStoryNodeSchema.parse(args.node)
   const isNew = !story.nodes[node.id]
   // 若节点曾带 ending 而新版本不带，且无其他节点使用该结局，则从结局表清理
   const prev = story.nodes[node.id]
@@ -150,11 +161,13 @@ export async function validateStory(title: string): Promise<unknown> {
   const story = await projects.loadStory(title)
   const problems = validate(story)
   const walk = walkAllEndings(story)
+  const experienceWarnings = validateExperience(story)
   return {
     ok: true,
     title,
     validatePass: problems.length === 0,
     problems,
+    experienceWarnings,
     nodeCount: Object.keys(story.nodes).length,
     endingCount: Object.keys(story.endings).length,
     walk,
@@ -206,7 +219,7 @@ export async function exportStory(args: ExportArgs): Promise<unknown> {
   }
   const result = await exportToHtml(story, {
     // 默认导出到项目目录下，与项目存储根保持一致
-    outputDir: args.outputDir ?? path.join(projects.projectDir(args.title), 'dist'),
+    outputDir: args.outputDir ?? path.join(await projects.resolveProjectDir(args.title), 'dist'),
   })
   return {
     ok: true,
@@ -224,14 +237,168 @@ export async function setMeta(args: {
   author?: string
   theme?: string | ThemeConfig
   hud?: HudStat[]
+  presentation?: PresentationConfig
+  soundscape?: SoundscapeSpec
+  world?: StateAxisConfig
+  phase?: StateAxisConfig
 }): Promise<unknown> {
   const story = await projects.loadStory(args.title)
   if (args.subtitle !== undefined) story.meta.subtitle = args.subtitle
   if (args.author !== undefined) story.meta.author = args.author
   if (args.theme !== undefined) story.meta.theme = args.theme
   if (args.hud !== undefined) story.meta.hud = args.hud
+  if (args.presentation !== undefined) story.meta.presentation = args.presentation
+  if (args.soundscape !== undefined) story.meta.soundscape = args.soundscape
+  if (args.world !== undefined) story.meta.world = args.world
+  if (args.phase !== undefined) story.meta.phase = args.phase
   await projects.saveStory(story)
   return { ok: true, meta: story.meta }
+}
+
+/** 只读取一个节点及其入边，避免为了局部修稿拉取整部 story。 */
+export async function getNode(args: { title: string; nodeId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const node = story.nodes[args.nodeId]
+  if (!node) throw new ProjectError('NOT_FOUND', `节点 "${args.nodeId}" 不存在`)
+  const incoming = Object.values(story.nodes).flatMap((source) => source.choices.flatMap((choice, choiceIndex) =>
+    choice.target === args.nodeId
+      ? [{ sourceNodeId: source.id, choiceIndex, label: choice.label, response: choice.response }]
+      : []))
+  return { ok: true, title: args.title, node, incoming }
+}
+
+export interface ReviewTransitionsArgs extends TransitionReviewOptions {
+  title: string
+}
+
+/** 分页返回紧凑转场上下文，供一次集中连贯性修订。 */
+export async function reviewProjectTransitions(args: ReviewTransitionsArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const { title, ...options } = args
+  const missingNodeIds = (options.nodeIds ?? []).filter((nodeId) => !story.nodes[nodeId])
+  if (missingNodeIds.length > 0) {
+    throw new ProjectError('NOT_FOUND', `找不到节点：${missingNodeIds.join('、')}`)
+  }
+  return { ok: true, title, review: reviewTransitions(story, options) }
+}
+
+export interface PatchChoiceArgs {
+  title: string
+  nodeId: string
+  choiceIndex: number
+  expectedLabel?: string
+  expectedTarget?: string
+  patch: ChoicePatch
+}
+
+/** 局部修改一个选项；可选旧值断言防止节点变化后按过期索引误改。 */
+export async function patchChoice(args: PatchChoiceArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const node = story.nodes[args.nodeId]
+  if (!node) throw new ProjectError('NOT_FOUND', `节点 "${args.nodeId}" 不存在`)
+  if (!Number.isInteger(args.choiceIndex) || args.choiceIndex < 0 || args.choiceIndex >= node.choices.length) {
+    throw new RangeError(`选项索引越界：${args.choiceIndex}（节点 ${args.nodeId} 有 ${node.choices.length} 个选项）`)
+  }
+  const previous = node.choices[args.choiceIndex]
+  if (args.expectedLabel !== undefined && previous.label !== args.expectedLabel) {
+    throw new ProjectError('CONFLICT', `选项 ${args.nodeId}[${args.choiceIndex}] 的 label 已变为「${previous.label}」，拒绝按旧值修改`)
+  }
+  if (args.expectedTarget !== undefined && previous.target !== args.expectedTarget) {
+    throw new ProjectError('CONFLICT', `选项 ${args.nodeId}[${args.choiceIndex}] 的 target 已变为 "${previous.target}"，拒绝按旧值修改`)
+  }
+  const patch = ChoicePatchSchema.parse(args.patch)
+  const next = structuredClone(previous)
+  applyOptionalPatch(next, patch, 'label')
+  applyOptionalPatch(next, patch, 'target')
+  applyNullablePatch(next, patch, 'response')
+  applyNullablePatch(next, patch, 'when')
+  applyNullablePatch(next, patch, 'effects')
+  node.choices[args.choiceIndex] = next
+  // 对局部补丁后的完整节点再次执行严格解析，再进入项目级落盘防线。
+  story.nodes[args.nodeId] = StrictStoryNodeSchema.parse(node)
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true,
+    nodeId: args.nodeId,
+    choiceIndex: args.choiceIndex,
+    previous,
+    choice: story.nodes[args.nodeId].choices[args.choiceIndex],
+    validate: problems,
+    validatePass: problems.length === 0,
+  }
+}
+
+function applyOptionalPatch<K extends 'label' | 'target'>(
+  choice: StoryNode['choices'][number],
+  patch: ChoicePatch,
+  key: K,
+): void {
+  if (patch[key] !== undefined) choice[key] = patch[key]!
+}
+
+function applyNullablePatch<K extends 'response' | 'when' | 'effects'>(
+  choice: StoryNode['choices'][number],
+  patch: ChoicePatch,
+  key: K,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(patch, key)) return
+  const value = patch[key]
+  if (value === null || value === undefined) delete choice[key]
+  else Object.assign(choice, { [key]: value })
+}
+
+export interface EvaluateProjectArgs {
+  title: string
+  /** 体验评估默认使用较小预算；完整可达性证明请调用 story_walk。 */
+  maxStates?: number
+  witnessMaxStates?: number
+}
+
+export async function evaluateProject(args: EvaluateProjectArgs | string): Promise<unknown> {
+  const normalized = typeof args === 'string' ? { title: args } : args
+  const story = await projects.loadStory(normalized.title)
+  const evaluation = evaluateStory(story, {
+    walkOptions: {
+      maxStates: normalized.maxStates ?? 10_000,
+      witnessMaxStates: normalized.witnessMaxStates ?? 5_000,
+    },
+  })
+  return {
+    ok: true,
+    title: normalized.title,
+    evaluationScope: 'quick_diagnostic',
+    evaluation,
+  }
+}
+
+export interface WalkStoryArgs extends Omit<WalkOptions, 'rand' | 'targetEndingId'> {
+  title: string
+}
+
+/** 独立路径诊断：允许调整探索预算，并默认返回热点节点以减少盲目改稿。 */
+export async function walkStory(args: WalkStoryArgs): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  const { title, ...options } = args
+  const walk = walkAllEndings(story, {
+    ...options,
+    diagnostics: options.diagnostics ?? true,
+  })
+  return {
+    ok: true,
+    title,
+    nodeCount: Object.keys(story.nodes).length,
+    endingCount: Object.keys(story.endings).length,
+    walk,
+  }
+}
+
+/** 单独的紧凑视觉配置工具，避免为改外观重复发送其他 meta 字段。 */
+export async function setPresentation(args: {
+  title: string
+  presentation: PresentationConfig
+}): Promise<unknown> {
+  return setMeta({ title: args.title, presentation: args.presentation })
 }
 
 export interface UpsertAchievementArgs {
@@ -319,20 +486,119 @@ export async function deleteDocument(args: {
   }
 }
 
+export async function upsertEvidence(args: { title: string; evidence: Evidence }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.evidence?.id) throw new Error('evidence.id 不能为空')
+  story.evidence ??= {}
+  const created = !story.evidence[args.evidence.id]
+  story.evidence[args.evidence.id] = args.evidence
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, evidenceId: args.evidence.id,
+    count: Object.keys(story.evidence).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteEvidence(args: { title: string; evidenceId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.evidence ??= {}
+  if (!story.evidence[args.evidenceId]) return { ok: true, deleted: false }
+  delete story.evidence[args.evidenceId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, evidenceId: args.evidenceId, validate: problems, validatePass: problems.length === 0 }
+}
+
+export async function upsertDeduction(args: { title: string; deduction: Deduction }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.deduction?.id) throw new Error('deduction.id 不能为空')
+  story.deductions ??= {}
+  const created = !story.deductions[args.deduction.id]
+  story.deductions[args.deduction.id] = args.deduction
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, deductionId: args.deduction.id,
+    count: Object.keys(story.deductions).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteDeduction(args: { title: string; deductionId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.deductions ??= {}
+  if (!story.deductions[args.deductionId]) return { ok: true, deleted: false }
+  delete story.deductions[args.deductionId]
+  await projects.saveStory(story)
+  return { ok: true, deleted: true, deductionId: args.deductionId }
+}
+
+export async function upsertCharacter(args: { title: string; character: Character }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.character?.id) throw new Error('character.id 不能为空')
+  story.characters ??= {}
+  const created = !story.characters[args.character.id]
+  story.characters[args.character.id] = args.character
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, characterId: args.character.id,
+    count: Object.keys(story.characters).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deleteCharacter(args: { title: string; characterId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.characters ??= {}
+  if (!story.characters[args.characterId]) return { ok: true, deleted: false }
+  delete story.characters[args.characterId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, characterId: args.characterId, validate: problems, validatePass: problems.length === 0 }
+}
+
+export async function upsertPuzzle(args: { title: string; puzzle: Puzzle }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  if (!args.puzzle?.id) throw new Error('puzzle.id 不能为空')
+  story.puzzles ??= {}
+  const created = !story.puzzles[args.puzzle.id]
+  story.puzzles[args.puzzle.id] = args.puzzle
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return {
+    ok: true, created, puzzleId: args.puzzle.id,
+    count: Object.keys(story.puzzles).length,
+    validate: problems, validatePass: problems.length === 0,
+  }
+}
+
+export async function deletePuzzle(args: { title: string; puzzleId: string }): Promise<unknown> {
+  const story = await projects.loadStory(args.title)
+  story.puzzles ??= {}
+  if (!story.puzzles[args.puzzleId]) return { ok: true, deleted: false }
+  delete story.puzzles[args.puzzleId]
+  await projects.saveStory(story)
+  const problems = validate(story)
+  return { ok: true, deleted: true, puzzleId: args.puzzleId, validate: problems, validatePass: problems.length === 0 }
+}
+
 export async function listProjects(): Promise<unknown> {
-  const names = await projects.listProjects()
+  const refs = await projects.listProjects()
   const detailed = []
-  for (const name of names) {
+  for (const ref of refs) {
     try {
-      const story = await projects.loadStory(name)
+      const story = await projects.loadStory(ref.title)
       detailed.push({
-        name,
+        name: ref.dir,
         title: story.meta.title,
         nodes: Object.keys(story.nodes).length,
         endings: Object.keys(story.endings).length,
       })
     } catch {
-      detailed.push({ name })
+      detailed.push({ name: ref.dir, title: ref.title })
     }
   }
   return { ok: true, projects: detailed }
@@ -347,6 +613,9 @@ export async function deleteProject(title: string): Promise<unknown> {
 export const tools = {
   story_new: newProject,
   story_get: (args: { title: string }) => getStory(args.title),
+  story_get_node: (args: { title: string; nodeId: string }) => getNode(args),
+  story_review_transitions: (args: ReviewTransitionsArgs) => reviewProjectTransitions(args),
+  story_patch_choice: (args: PatchChoiceArgs) => patchChoice(args),
   story_upsert_node: (args: UpsertNodeArgs) => upsertNode(args),
   story_delete_node: (args: DeleteNodeArgs) => deleteNode(args),
   story_delete_ending: (args: { title: string; endingId: string }) => deleteEnding(args),
@@ -355,11 +624,21 @@ export const tools = {
     deleteAchievement(args),
   story_upsert_document: (args: UpsertDocumentArgs) => upsertDocument(args),
   story_delete_document: (args: { title: string; documentId: string }) => deleteDocument(args),
+  story_upsert_evidence: (args: { title: string; evidence: Evidence }) => upsertEvidence(args),
+  story_delete_evidence: (args: { title: string; evidenceId: string }) => deleteEvidence(args),
+  story_upsert_deduction: (args: { title: string; deduction: Deduction }) => upsertDeduction(args),
+  story_delete_deduction: (args: { title: string; deductionId: string }) => deleteDeduction(args),
+  story_upsert_character: (args: { title: string; character: Character }) => upsertCharacter(args),
+  story_delete_character: (args: { title: string; characterId: string }) => deleteCharacter(args),
+  story_upsert_puzzle: (args: { title: string; puzzle: Puzzle }) => upsertPuzzle(args),
+  story_delete_puzzle: (args: { title: string; puzzleId: string }) => deletePuzzle(args),
   story_validate: (args: { title: string }) => validateStory(args.title),
-  story_walk: (args: { title: string }) => validateStory(args.title),
+  story_evaluate: (args: EvaluateProjectArgs) => evaluateProject(args),
+  story_walk: (args: WalkStoryArgs) => walkStory(args),
   story_graph: (args: { title: string }) => graph(args.title),
   story_export: (args: ExportArgs) => exportStory(args),
-  story_set_meta: (args: { title: string; subtitle?: string; author?: string }) => setMeta(args),
+  story_set_meta: (args: { title: string; subtitle?: string; author?: string; soundscape?: SoundscapeSpec; world?: StateAxisConfig; phase?: StateAxisConfig }) => setMeta(args),
+  story_set_presentation: (args: { title: string; presentation: PresentationConfig }) => setPresentation(args),
   story_list: () => listProjects(),
   story_delete_project: (args: { title: string }) => deleteProject(args.title),
 }

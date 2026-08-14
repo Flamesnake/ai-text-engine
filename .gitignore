@@ -4,3 +4,14 @@ projects
 *.local
 .env*
 .DS_Store
+
+# 本机 Agent/MCP 配置与创作调试临时文件，不进入公开仓库或发布包
+.codex/
+.reasonix/
+.mcp.json
+_scratch/
+
+# 私有作品的本地评估与专用验收脚本
+docs/evals/white-tide-blind-test.md
+scripts/verify-white-tide.mjs
+scripts/verify-zero-bay.mjs

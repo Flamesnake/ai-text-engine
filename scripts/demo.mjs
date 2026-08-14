@@ -237,7 +237,7 @@ for (const node of nodes) {
   }
 }
 
-// 3. 校验 + 全路径
+// 3. 校验 + 路径探索
 const v = await tool('story_validate', { title: '迷雾车站' })
 console.log('  validatePass:', v.validatePass)
 console.log('  结局覆盖:', v.walk.endings.map((e) => `${e.endingId}(${e.paths}条路,${e.minSteps}步)`).join(' '))

@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "title": "走廊尽头的证词",
+    "subtitle": "一个人物关系与秘密揭示样例",
+    "version": "0.3.0",
+    "theme": "paper"
+  },
+  "start": "maid_request",
+  "characters": {
+    "maid": {
+      "id": "maid",
+      "name": "林夏",
+      "description": "山庄女仆。她显然知道些什么，却害怕承担违反宵禁的后果。",
+      "relations": {
+        "trust": { "label": "信任", "initial": 0, "min": -3, "max": 3 }
+      },
+      "secrets": {
+        "hidden_corridor": {
+          "id": "hidden_corridor",
+          "title": "隐藏走廊",
+          "description": "停电后，她看见管家从书房后的隐藏走廊出来。"
+        }
+      }
+    }
+  },
+  "evidence": {
+    "corridor_testimony": {
+      "id": "corridor_testimony",
+      "title": "林夏的走廊证词",
+      "description": "林夏亲眼看见管家在停电后离开隐藏走廊。",
+      "kind": "testimony",
+      "source": "maid_confession"
+    }
+  },
+  "nodes": {
+    "maid_request": {
+      "id": "maid_request",
+      "text": "林夏攥着围裙边缘。\n“停电时我确实离开过房间……请别把这件事告诉管家。”",
+      "choices": [
+        {
+          "label": "答应替她保守违反宵禁的事",
+          "target": "second_talk",
+          "effects": {
+            "adjustRelation": [{ "characterId": "maid", "stat": "trust", "add": 2 }],
+            "remember": ["protected_maid"]
+          }
+        },
+        {
+          "label": "逼她立刻交代，否则报告管家",
+          "target": "second_talk",
+          "effects": {
+            "adjustRelation": [{ "characterId": "maid", "stat": "trust", "add": -2 }],
+            "remember": ["threatened_maid"]
+          }
+        }
+      ]
+    },
+    "second_talk": {
+      "id": "second_talk",
+      "text": "片刻沉默后，她抬起眼睛。你能感觉到，刚才的选择决定了她是否愿意相信你。",
+      "choices": [
+        {
+          "label": "告诉她：我会保护证人，请说出你真正看见的事",
+          "target": "maid_confession",
+          "when": {
+            "and": [
+              { "op": "gte", "var": "#relation:maid:trust", "value": 2 },
+              { "op": "eq", "var": "#memory", "value": "protected_maid" }
+            ]
+          }
+        },
+        { "label": "结束谈话", "target": "silence" }
+      ]
+    },
+    "maid_confession": {
+      "id": "maid_confession",
+      "text": "“我从走廊回来时，看见管家从书房墙后的暗门出来。他让我忘掉这件事。”\n林夏终于说出了她一直隐瞒的证词。",
+      "onEnter": {
+        "revealSecrets": ["maid:hidden_corridor"],
+        "gainEvidence": ["corridor_testimony"]
+      },
+      "choices": [],
+      "ending": { "id": "e_confession", "title": "被信任换来的证词", "kind": "true" }
+    },
+    "silence": {
+      "id": "silence",
+      "text": "林夏最终什么也没有说。没有安全感的人，不会把自己的命运交给调查者。",
+      "choices": [],
+      "ending": { "id": "e_silence", "title": "沉默的证人", "kind": "bad" }
+    }
+  },
+  "endings": {
+    "e_confession": { "id": "e_confession", "title": "被信任换来的证词", "kind": "true" },
+    "e_silence": { "id": "e_silence", "title": "沉默的证人", "kind": "bad" }
+  }
+}

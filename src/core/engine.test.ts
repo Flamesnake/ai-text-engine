@@ -136,6 +136,7 @@ describe('effects / conditions 直接单测', () => {
     expect(evalCondition({ op: 'ne', var: 'name', value: '小明' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'exists', var: 'hp' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'exists', var: 'luck' }, ctx)).toBe(false)
+    expect(evalCondition({ op: 'exists', var: '#steps' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'has', var: '手电' }, ctx)).toBe(true)
     expect(evalCondition({ op: 'not_has', var: '钥匙' }, ctx)).toBe(true)
     expect(
@@ -146,5 +147,86 @@ describe('effects / conditions 直接单测', () => {
     ).toBe(true)
     expect(evalCondition({ not: { op: 'gt', var: 'hp', value: 10 } }, ctx)).toBe(true)
     expect(evalCondition(undefined, ctx)).toBe(true)
+  })
+
+  it('记录选择承接，并随存档恢复与重开清空', () => {
+    const responseStory = makeStory()
+    responseStory.nodes.start.choices[0].response = '你把剑握紧，勇气升到 {courage}。'
+    const game = new Game(responseStory)
+    game.choose(0)
+
+    expect(game.state.lastChoice).toEqual({
+      fromNodeId: 'start', targetNodeId: 'armed', label: '拿剑',
+      response: '你把剑握紧，勇气升到 {courage}。',
+    })
+    expect(game.interpolate(game.state.lastChoice!.response!)).toContain('勇气升到 8')
+
+    const restored = new Game(responseStory, game.toSave())
+    expect(restored.state.lastChoice).toEqual(game.state.lastChoice)
+    restored.restart()
+    expect(restored.state.lastChoice).toBeNull()
+  })
+
+  it('world/phase 同时驱动条件、插值、存档与重开', () => {
+    const stateStory = makeStory()
+    stateStory.meta.world = {
+      initial: 'surface',
+      states: { surface: { label: '表世界' }, other: { label: '里世界' } },
+    }
+    stateStory.meta.phase = {
+      initial: 'day',
+      states: { day: { label: '白天' }, night: { label: '夜晚' } },
+    }
+    stateStory.nodes.start.choices[0].effects = {
+      ...stateStory.nodes.start.choices[0].effects,
+      world: 'other',
+      phase: 'night',
+    }
+    stateStory.nodes.armed.choices = [{
+      label: '只在里世界出现', target: 'fight',
+      when: { op: 'eq', var: '#world', value: 'other' },
+    }]
+
+    const game = new Game(stateStory)
+    expect(game.state).toMatchObject({ world: 'surface', phase: 'day' })
+    game.choose(0)
+    expect(game.state).toMatchObject({ world: 'other', phase: 'night' })
+    expect(game.visibleChoices().map((choice) => choice.label)).toEqual(['只在里世界出现'])
+    expect(game.interpolate('{#world}/{#phase}')).toBe('other/night')
+
+    const restored = new Game(stateStory, game.toSave())
+    expect(restored.state).toMatchObject({ world: 'other', phase: 'night' })
+    restored.restart()
+    expect(restored.state).toMatchObject({ world: 'surface', phase: 'day' })
+  })
+
+  it('集合型特殊变量同时支持 eq/ne 与 has/not_has', () => {
+    const ctx = {
+      vars: {},
+      inventory: [],
+      visited: ['study'],
+      docs: ['letter'],
+      violations: ['rule_1'],
+      evidence: ['fiber'],
+      deductions: ['false_alibi'],
+      memories: ['kept_promise'],
+      revealedSecrets: ['witness:past'],
+      solvedPuzzles: ['safe_code'],
+    }
+    for (const [variable, value] of [
+      ['#visited', 'study'],
+      ['#docs', 'letter'],
+      ['#violated', 'rule_1'],
+      ['#evidence', 'fiber'],
+      ['#deduction', 'false_alibi'],
+      ['#memory', 'kept_promise'],
+      ['#secret', 'witness:past'],
+      ['#puzzle', 'safe_code'],
+    ] as const) {
+      expect(evalCondition({ op: 'has', var: variable, value }, ctx)).toBe(true)
+      expect(evalCondition({ op: 'not_has', var: variable, value }, ctx)).toBe(false)
+      expect(evalCondition({ op: 'has', var: variable, value: 'missing' }, ctx)).toBe(false)
+      expect(evalCondition({ op: 'not_has', var: variable, value: 'missing' }, ctx)).toBe(true)
+    }
   })
 })
