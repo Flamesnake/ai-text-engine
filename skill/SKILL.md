@@ -15,12 +15,14 @@ description: 用 ai-text-engine 的 MCP 工具制作 HTML 互动叙事游戏。�
 
 如果工具不可用，并且当前工作区是 ai-text-engine 源码仓库：
 
-1. 运行 `npm install`（仅在依赖缺失时）与 `npm run build`，确认 `dist/mcp/server.js` 存在。
+1. 运行 `npm install`（仅在依赖缺失时）与 `npm run build`，再运行 `node dist/cli.js doctor`，确认 MCP、预构建运行时、Skill 和作品目录均为 OK。
 2. 运行 `node scripts/verify-mcp.mjs`；只有输出 `VERIFY OK` 才说明服务器本身可启动。
 3. 检查客户端 MCP 配置是否注册 `ai-text-engine`，命令指向该工作区的绝对路径 `dist/mcp/server.js`。仓库根目录 `.mcp.json` 不是通用标准，也不能证明 Codex 已注册服务器。Codex 默认读取 `~/.codex/config.toml`，可信项目可读取 `.codex/config.toml`；可用 `codex mcp add ai-text-engine -- node <绝对路径>/dist/mcp/server.js` 注册，或在设置的 MCP servers 中添加 STDIO 服务器。
 4. 新增或修改配置后重启/刷新 AI 客户端会话，再检查 `story_` 工具。
 
 仍不可用时，向用户说明阻塞并停止创作。**不要直接导入 `dist/mcp/handlers.js` 代替 MCP 创作**：这会绕过 transport 的输入边界，也无法证明用户实际配置可用。
+
+作品目录由 `AI_TEXT_ENGINE_HOME` 控制并位于其 `projects/` 子目录；源码仓库默认使用仓库内 `projects/`。不要把作品写入 Skill 目录、`node_modules` 或临时脚本。未来 npm 包可通过统一 CLI 安装 Skill，但在包正式发布前不要臆造 `npx` 包名。
 
 ## 工具速览
 

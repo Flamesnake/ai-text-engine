@@ -1,4 +1,6 @@
 import { mkdir, readFile, writeFile, readdir, rm, rename } from 'fs/promises'
+import { existsSync } from 'fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Story } from '../core/types.js'
@@ -16,11 +18,27 @@ import { safeName } from '../export/exporter.js'
  * - 冲突检测：同一进程内若项目在「读取后、保存前」被其他编辑修改过，拒绝覆盖。
  */
 
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+
+/**
+ * 本地源码仓库继续使用仓库内 projects；预构建安装包默认写入用户数据目录。
+ * AI_TEXT_ENGINE_HOME 指向产品数据根目录（其下自动使用 projects/）。
+ */
+export function resolveDefaultProjectsRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const configuredHome = env.AI_TEXT_ENGINE_HOME?.trim()
+  if (configuredHome) return path.join(path.resolve(configuredHome), 'projects')
+  if (existsSync(path.join(PACKAGE_ROOT, 'src'))) return path.join(PACKAGE_ROOT, 'projects')
+
+  const dataHome = process.platform === 'win32'
+    ? (env.LOCALAPPDATA?.trim() || path.join(os.homedir(), 'AppData', 'Local'))
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support')
+      : (env.XDG_DATA_HOME?.trim() || path.join(os.homedir(), '.local', 'share'))
+  return path.join(path.resolve(dataHome), 'ai-text-engine', 'projects')
+}
+
 /** projects 根目录（可被测试覆盖） */
-export let PROJECTS_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../projects',
-)
+export let PROJECTS_ROOT = resolveDefaultProjectsRoot()
 
 export type ProjectErrorCode =
   | 'NOT_FOUND'

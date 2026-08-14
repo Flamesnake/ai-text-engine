@@ -1,5 +1,4 @@
-import { build } from 'esbuild'
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Story, ThemeConfig } from '../core/types.js'
@@ -17,6 +16,8 @@ import { renderHtmlTemplate } from './template.js'
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const RUNTIME_ENTRY = path.join(PKG_ROOT, 'src/export/runtime.ts')
+const PREBUILT_RUNTIME = path.join(path.dirname(fileURLToPath(import.meta.url)), 'runtime.bundle.js')
+const DEV_PREBUILT_RUNTIME = path.join(PKG_ROOT, 'dist/export/runtime.bundle.js')
 
 /* ------------------------------ 内置主题 ------------------------------ */
 
@@ -142,6 +143,17 @@ export async function exportToHtml(story: Story, options?: ExportOptions): Promi
 
 /** 用 esbuild 把运行时渲染器（含引擎核心）打包为浏览器 IIFE */
 async function bundleRuntime(minify: boolean): Promise<string> {
+  if (minify) {
+    for (const candidate of [PREBUILT_RUNTIME, DEV_PREBUILT_RUNTIME]) {
+      try {
+        return await readFile(candidate, 'utf8')
+      } catch {
+        // 源码测试在首次 build 前没有预构建文件，继续使用开发期回退。
+      }
+    }
+  }
+
+  const { build } = await import('esbuild')
   const result = await build({
     entryPoints: [RUNTIME_ENTRY],
     bundle: true,

@@ -10,6 +10,7 @@
 - **声画输入与生命周期**：节点 `sfx` 改为共享严格枚举并补齐 `ending_hidden`；`fx.intensity`/`speed` 增加安全边界。音频使用主增益实现即时静音，支持挂起恢复与显式销毁，不再依赖未知音效运行时静默失败。
 - **受控富文本与条件揭示**：文本块新增严格 `segments`，支持 emphasis/italic/blood/whisper/redacted/glitch/corrupt/terminal/handwritten/broadcast；揭示条件参与引用校验，未满足时真实文本不进入 DOM，保留纯文本回退且不开放任意 HTML/CSS。
 - **统一发布自检**：新增 `npm run check:release`，复用构建、完整测试、真实 MCP 握手和项目语料校验；为后续薄插件封装提供稳定健康检查契约，避免 Agent 重复排查与重复 typecheck。
+- **通用 npm CLI 与安装隔离**：新增 `doctor/init/mcp/install-skill/version` 入口；预构建包把作品写入用户数据目录或 `AI_TEXT_ENGINE_HOME`，不再写入 `node_modules`。发布白名单排除源码测试、临时文件与个人作品，并用空目录生产依赖安装、MCP 握手和真实 HTML 导出验证 tarball。
 - **集合型特殊条件语义**：`#visited`、`#docs`、`#evidence`、`#deduction`、`#violated`、`#memory`、`#secret`、`#puzzle` 现在同时支持 `eq/ne` 与 `has/not_has`；修复 `has` 被提前当作普通道具检查、导致运行时和 walk 错判不可达的问题，并增加推论与谜题回归测试；
 - **推理结局可发现性**：玩家获得证据后，在场景主要行动区显示“整理线索并推理”入口；
   线索板补充选择推论、勾选证据、验证推论的操作说明，避免关键结局只由顶部工具按钮隐式解锁。

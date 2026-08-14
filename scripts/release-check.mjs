@@ -9,6 +9,7 @@ const steps = [
   [process.execPath, [npmCli, 'test'], 'test suite'],
   [process.execPath, ['scripts/verify-mcp.mjs'], 'MCP handshake'],
   [process.execPath, ['scripts/verify-projects.mjs'], 'project corpus'],
+  [process.execPath, ['scripts/verify-package.mjs'], 'npm tarball install'],
 ]
 
 for (const [command, args, label] of steps) {

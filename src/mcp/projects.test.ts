@@ -20,6 +20,10 @@ afterEach(async () => {
 })
 
 describe('项目存储深模块', () => {
+  it('AI_TEXT_ENGINE_HOME 显式指定安装包的作品目录', () => {
+    expect(projects.resolveDefaultProjectsRoot({ AI_TEXT_ENGINE_HOME: tmp })).toBe(path.join(tmp, 'projects'))
+  })
+
   it('清洗标题碰撞时自动分配独立目录（a/b、a:b、a b 互不覆盖）', async () => {
     // 三个标题的 safeName 都是 "a-b"
     const t1 = '碰撞-A/B'

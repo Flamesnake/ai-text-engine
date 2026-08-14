@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import * as handlers from './handlers.js'
 import { observeToolCall, resetObservability, snapshotObservability } from './observability.js'
+import { ENGINE_VERSION } from '../version.js'
 import {
   AchievementSchema,
   HudStatSchema,
@@ -26,7 +27,7 @@ import {
 
 const server = new McpServer({
   name: 'ai-text-engine',
-  version: '0.1.0',
+  version: ENGINE_VERSION,
 })
 
 /** 统一包装：结果 JSON 序列化；异常转为 isError 响应 */

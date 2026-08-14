@@ -21,7 +21,7 @@
 npm run check:release
 ```
 
-它按顺序执行一次构建（含 TypeScript 检查）、完整测试、真实 MCP stdio 握手和 `projects/*/story.json` 语料校验。任一步失败即返回非零状态；不再额外执行一次重复 typecheck。
+它按顺序执行一次构建（含 TypeScript 检查）、完整测试、真实 MCP stdio 握手、`projects/*/story.json` 语料校验，以及 npm tarball 空目录安装。安装验收会运行 CLI doctor、已安装 MCP 握手和单 HTML 导出。任一步失败即返回非零状态；不再额外执行一次重复 typecheck。
 
 单独诊断时可使用：
 
@@ -29,6 +29,7 @@ npm run check:release
 npm run build
 node scripts/verify-mcp.mjs
 npm run check:projects
+npm run check:package
 ```
 
 ## 插件封装前最后检查
@@ -42,4 +43,12 @@ npm run check:projects
 
 ## 安装后的健康检查契约
 
-插件安装流程最终只需证明三件事：Node 运行时可用、`dist/mcp/server.js` 存在、`verify-mcp.mjs` 返回 `VERIFY OK`。若失败，应直接显示缺失项和修复命令，不让创作 Agent 通过导入 handler 或临时 stdio 脚本绕过配置。
+通用安装流程最终只需证明：Node 运行时可用、CLI doctor 通过、MCP 返回完整工具清单、预构建运行时可以导出单 HTML、Skill 可显式安装。作品写入用户数据目录或 `AI_TEXT_ENGINE_HOME`，不得写入 `node_modules`。若失败，应直接显示缺失项和修复命令，不让创作 Agent 通过导入 handler 或临时 stdio 脚本绕过配置。
+
+## npm 准备状态
+
+- 已有 `dist/cli.js`，提供 `doctor`、`init`、`mcp`、`install-skill` 和 `version`；
+- 发布清单只包含 `dist`、`skill`、README、CHANGELOG 和 LICENSE；
+- 构建会清理旧 dist 并排除测试产物；导出器优先读取预构建 runtime，不要求用户安装 esbuild；
+- MCP SDK 已归入运行依赖；tarball 会在空目录以 `--omit=dev` 安装验证；
+- 当前保留 `private: true`，确认 npm scope/包名后才允许真正发布。

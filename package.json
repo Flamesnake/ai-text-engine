@@ -4,16 +4,60 @@
   "version": "0.1.0",
   "type": "module",
   "description": "给 AI 用的文字冒险引擎 + MCP 服务器：AI 通过 MCP 工具创建剧情、校验、导出单文件 HTML 游戏",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "interactive-fiction",
+    "text-adventure",
+    "story-engine",
+    "agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Flamesnake/ai-text-engine.git"
+  },
+  "homepage": "https://github.com/Flamesnake/ai-text-engine#readme",
+  "bugs": {
+    "url": "https://github.com/Flamesnake/ai-text-engine/issues"
+  },
+  "files": [
+    "dist",
+    "skill",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "ai-text-engine": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp-api.d.ts",
+      "import": "./dist/mcp-api.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc && node scripts/build-runtime.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/build-runtime.mjs",
     "test": "vitest run",
-    "mcp": "node dist/mcp/server.js",
+    "mcp": "node dist/cli.js mcp",
     "check:projects": "node scripts/verify-projects.mjs",
-    "check:release": "node scripts/release-check.mjs"
+    "check:release": "node scripts/release-check.mjs",
+    "check:package": "npm run build && node scripts/verify-package.mjs",
+    "prepack": "npm run build"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.11.2",
@@ -21,6 +65,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.4.3"
   }
 }

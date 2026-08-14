@@ -12,7 +12,7 @@
 
 ## 安装与分发状态
 
-当前版本仍采用**源码安装**，尚未发布到 npm，也没有要求用户安装 DeepSeek Harness。完成 npm 发布准备后，目标是让 MCP 客户端通过 `npx` 直接启动，并另行提供可选的 DSH 薄适配包；在正式发布前，README 不会展示尚不可用的安装命令。
+当前版本仍采用**源码安装**，尚未发布到 npm，也没有要求用户安装 DeepSeek Harness。仓库已经具备可安装 tarball、统一 CLI 和空环境验收；正式发布前仍保持 `private: true`，待确认 npm 包名和所有者后再开放。未来另行提供可选的 DSH 薄适配包。
 
 `projects/` 是本地创作区，已被 Git 整体忽略：其中的 `story.json`、导出 HTML 和个人作品不会随源码仓库提交，也不会进入未来的 npm 包。仓库只保留明确设计为公开测试夹具的 `examples/` 和构建样板。发布前还会通过 npm `files` 白名单只打包运行时、CLI、Skill 和必要文档。
 
@@ -26,9 +26,25 @@ npm run build        # 编译到 dist/（tsc）+ 打包运行时（esbuild）
 npm test             # 运行 vitest 测试
 npm run mcp          # 以 stdio 方式启动 MCP 服务器
 npm run check:release # 发布前：构建 + 测试 + MCP 握手 + 项目语料校验
+npm run check:package # 构建 tarball，在空目录安装并验证 CLI/MCP/导出
 ```
 
 > `npm run check:release` 会读取本机 `projects/` 做兼容性回归，但不会复制、修改或上传作品。
+
+### 本地 CLI
+
+构建后可先用与未来 npm 包相同的入口：
+
+```bash
+node dist/cli.js doctor
+node dist/cli.js init --home C:/path/to/ai-text-engine-data
+node dist/cli.js install-skill --client codex
+node dist/cli.js mcp --home C:/path/to/ai-text-engine-data
+```
+
+`AI_TEXT_ENGINE_HOME` 也可指定数据根目录，作品写入其 `projects/` 子目录。源码仓库在未设置该变量时继续使用仓库内的 `projects/`；未来 npm 安装包默认使用操作系统用户数据目录，不会把作品写进 `node_modules`。
+
+`install-skill` 支持 `agents`、`codex`、`claude`；已有同名 Skill 时默认拒绝覆盖，确认更新需显式增加 `--force`。正式发布后的目标命令形态是 `npx -y <最终包名> doctor|mcp|install-skill`，当前不要使用尚未发布的包名。
 
 ### 注册到 AI 客户端
 
@@ -39,7 +55,7 @@ npm run check:release # 发布前：构建 + 测试 + MCP 握手 + 项目语料�
 Codex 默认读取用户级 `~/.codex/config.toml`，可信项目也可以使用项目内 `.codex/config.toml`。最稳妥的注册方式是：
 
 ```bash
-codex mcp add ai-text-engine -- node E:/GAMER/wzkb/ai-text-engine/dist/mcp/server.js
+codex mcp add ai-text-engine -- node E:/GAMER/wzkb/ai-text-engine/dist/cli.js mcp
 ```
 
 也可以在设置中的 **MCP servers → Add server** 添加同一条 STDIO 命令，或在 `config.toml` 中写入：
@@ -47,7 +63,7 @@ codex mcp add ai-text-engine -- node E:/GAMER/wzkb/ai-text-engine/dist/mcp/serve
 ```toml
 [mcp_servers."ai-text-engine"]
 command = "node"
-args = ["E:/GAMER/wzkb/ai-text-engine/dist/mcp/server.js"]
+args = ["E:/GAMER/wzkb/ai-text-engine/dist/cli.js", "mcp"]
 enabled = true
 ```
 
@@ -62,7 +78,7 @@ Claude Desktop、Cursor 等使用 JSON 配置的客户端可采用：
   "mcpServers": {
     "ai-text-engine": {
       "command": "node",
-      "args": ["C:/path/to/ai-text-engine/dist/mcp/server.js"]
+      "args": ["C:/path/to/ai-text-engine/dist/cli.js", "mcp"]
     }
   }
 }
@@ -70,7 +86,7 @@ Claude Desktop、Cursor 等使用 JSON 配置的客户端可采用：
 
 > 把示例路径换成你 clone 后的实际路径（Windows 用正斜杠或转义反斜杠）。
 
-注册前先执行 `npm run build`，确保 `dist/mcp/server.js` 已生成；修改 MCP 配置后通常需要重启或刷新客户端会话。Skill 已加载但看不到 `story_` 工具时，说明 MCP 并未连接。
+注册前先执行 `npm run build`，并用 `node dist/cli.js doctor` 检查预构建运行时、MCP、Skill 与数据目录；修改 MCP 配置后通常需要重启或刷新客户端会话。Skill 已加载但看不到 `story_` 工具时，说明 MCP 并未连接。
 
 ### 验证
 
