@@ -13,11 +13,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Flamesnake/ai-text-engine.git"
+    "url": "git+https://github.com/Flamesnake/talespindle.git"
   },
-  "homepage": "https://github.com/Flamesnake/ai-text-engine#readme",
+  "homepage": "https://github.com/Flamesnake/talespindle#readme",
   "bugs": {
-    "url": "https://github.com/Flamesnake/ai-text-engine/issues"
+    "url": "https://github.com/Flamesnake/talespindle/issues"
   },
   "files": [
     "dist",

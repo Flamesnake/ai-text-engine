@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 变更
+
+- GitHub 仓库由 `Flamesnake/ai-text-engine` 更名为 `Flamesnake/talespindle`，并更新 npm repository、homepage、bugs 与源码路径示例；旧 GitHub URL 由 GitHub 自动重定向。
+
 ## [0.2.0] - 2026-08-14
 
 ### 变更
