@@ -283,7 +283,38 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       `density-${p.density}`,
       `shape-${p.shape}`,
       `choice-${p.choiceStyle}`,
+      story.meta.site ? `site-${story.meta.site.kind}` : '',
     ].join(' ')
+  }
+
+  function renderGameHeader(step: number): string {
+    if (story.meta.site?.kind === 'news') {
+      const site = story.meta.site
+      return `<header class="game-header site-header">
+        <div class="site-utility"><span>${esc(site.locale ?? '独立新闻档案')}</span><span>第 ${step} 页</span></div>
+        <div class="site-masthead"><span class="site-name">${esc(site.name)}</span>${site.tagline ? `<span class="site-tagline">${esc(site.tagline)}</span>` : ''}</div>
+        <nav class="site-tools" aria-label="调查工具">
+          ${puzzlesButton()}${charactersButton()}${evidenceBoardButton()}${docsButton()}${muteButtonHtml()}
+        </nav>
+      </header>`
+    }
+    return `<header class="game-header">
+      <span class="game-title">${esc(story.meta.title)}</span>
+      <span class="game-step">第 ${step} 步</span>
+      ${puzzlesButton()}${charactersButton()}${evidenceBoardButton()}${docsButton()}${muteButtonHtml()}
+    </header>`
+  }
+
+  function renderPageHeader(node: StoryNode): string {
+    if (story.meta.site?.kind !== 'news' || (node.stage && node.stage !== 'clear')) return ''
+    const page = node.page ?? {}
+    const headline = page.headline ?? node.objective ?? story.meta.subtitle ?? story.meta.title
+    const details = [page.byline ? `记者 ${page.byline}` : '', page.timestamp ?? ''].filter(Boolean)
+    return `<header class="web-page-header page-layout-${page.layout ?? 'article'}" data-web-page="${page.layout ?? 'article'}">
+      ${page.section ? `<span class="web-page-section">${esc(page.section)}</span>` : ''}
+      <h1 class="web-page-headline">${esc(game.interpolate(headline))}</h1>
+      ${details.length > 0 ? `<p class="web-page-meta">${details.map(esc).join('<span aria-hidden="true"> · </span>')}</p>` : ''}
+    </header>`
   }
 
   function renderTitle(): void {
@@ -293,16 +324,17 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     lastRenderedStateKey = null
     const has = hasSave()
     const achCount = (story.achievements ?? []).length
+    const site = story.meta.site
     root.innerHTML = `
       <main class="screen title-screen ${presentationClasses()}">
-        <div class="title-badge">TEXT ADVENTURE</div>
-        <h1 class="title-main">${esc(story.meta.title)}</h1>
-        ${story.meta.subtitle ? `<p class="title-sub">${esc(story.meta.subtitle)}</p>` : ''}
+        <div class="title-badge">${site?.kind === 'news' ? esc(site.locale ?? '独立新闻档案') : 'TEXT ADVENTURE'}</div>
+        <h1 class="title-main">${esc(site?.name ?? story.meta.title)}</h1>
+        ${(site?.tagline ?? story.meta.subtitle) ? `<p class="title-sub">${esc(site?.tagline ?? story.meta.subtitle ?? '')}</p>` : ''}
         <div class="title-actions">
-          <button class="btn btn-primary" data-action="start">开始游戏</button>
-          ${has ? '<button class="btn" data-action="continue">继续上次</button>' : ''}
-          ${has ? '<button class="btn btn-ghost" data-action="clear">清除存档</button>' : ''}
-          ${achCount > 0 ? '<button class="btn btn-ghost" data-action="achievements">成就</button>' : ''}
+          <button class="btn btn-primary" data-action="start">${site?.kind === 'news' ? '浏览最新报道' : '开始游戏'}</button>
+          ${has ? `<button class="btn" data-action="continue">${site?.kind === 'news' ? '继续浏览' : '继续上次'}</button>` : ''}
+          ${has ? `<button class="btn btn-ghost" data-action="clear">${site?.kind === 'news' ? '清除浏览记录' : '清除存档'}</button>` : ''}
+          ${achCount > 0 ? `<button class="btn btn-ghost" data-action="achievements">${site?.kind === 'news' ? '阅读档案' : '成就'}</button>` : ''}
         </div>
         <p class="title-foot">${muteButtonHtml()}</p>
       </main>`
@@ -336,11 +368,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     clearUnstable()
     const achievements = story.achievements ?? []
     const unlocked = load()?.achievements ?? []
+    const newsSite = story.meta.site?.kind === 'news'
     root.innerHTML = `
       <main class="screen title-screen achievements-screen ${presentationClasses()}">
-        <div class="title-badge">ACHIEVEMENTS</div>
-        <h2 class="ach-heading">成就</h2>
-        <p class="ach-count">已解锁 ${unlocked.length} / ${achievements.length}</p>
+        <div class="title-badge">${newsSite ? 'ARCHIVE' : 'ACHIEVEMENTS'}</div>
+        <h2 class="ach-heading">${newsSite ? '阅读档案' : '成就'}</h2>
+        <p class="ach-count">${newsSite ? '已发现' : '已解锁'} ${unlocked.length} / ${achievements.length}</p>
         <div class="ach-list">
           ${achievements
             .map((ach) => {
@@ -357,7 +390,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
             .join('')}
         </div>
         <div class="title-actions">
-          <button class="btn" data-action="back">返回</button>
+          <button class="btn" data-action="back">${newsSite ? '返回首页' : '返回'}</button>
         </div>
       </main>`
     bind('[data-action="back"]', () => renderTitle())
@@ -375,7 +408,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const toast = document.createElement('div')
     toast.className = 'achievement-toast'
     toast.innerHTML = items
-      .map((a) => `<div class="ach-toast-item">${esc(a.icon ?? '🏆')} 成就解锁：${esc(a.title)}</div>`)
+      .map((a) => `<div class="ach-toast-item">${esc(a.icon ?? '🏆')} ${story.meta.site?.kind === 'news' ? '发现档案' : '成就解锁'}：${esc(a.title)}</div>`)
       .join('')
     root.appendChild(toast)
     playSfx('achievement')
@@ -405,16 +438,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}">
-        <header class="game-header">
-          <span class="game-title">${esc(story.meta.title)}</span>
-          <span class="game-step">第 ${step} 步</span>
-          ${puzzlesButton()}
-          ${charactersButton()}
-          ${evidenceBoardButton()}
-          ${docsButton()}
-          ${muteButtonHtml()}
-        </header>
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? 'article'}"` : ''}>
+        ${renderGameHeader(step)}
         ${renderHud()}
         ${renderInventory(game.state.inventory)}
         ${node.objective ? `<aside class="scene-objective"><strong>当前目标</strong><span>${esc(game.interpolate(node.objective))}</span></aside>` : ''}
@@ -422,6 +447,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         ${tutorial ? tutorialBanner(tutorial) : ''}
         ${renderStage()}
         <section class="card ${fx.cls}" style="${fx.style}">
+          ${renderPageHeader(node)}
           ${renderChoiceResponse()}
           ${renderBody(node)}
           <div class="card-actions">
@@ -801,25 +827,18 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     playSfx(`ending_${ending.kind}` as SfxName)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}">
-        <header class="game-header">
-          <span class="game-title">${esc(story.meta.title)}</span>
-          <span class="game-step">第 ${step} 步</span>
-          ${puzzlesButton()}
-          ${charactersButton()}
-          ${evidenceBoardButton()}
-          ${docsButton()}
-          ${muteButtonHtml()}
-        </header>
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? 'article'}"` : ''}>
+        ${renderGameHeader(step)}
         ${renderStage()}
         <section class="card card-ending ending-${ending.kind} ${fx.cls}" style="${fx.style}">
+          ${renderPageHeader(node)}
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>
           ${renderChoiceResponse()}
           ${renderBody(node)}
           <div class="card-actions ending-actions">
-            <button class="btn btn-primary" data-action="replay">再来一次</button>
-            <button class="btn btn-ghost" data-action="title">返回标题</button>
+            <button class="btn btn-primary" data-action="replay">${story.meta.site?.kind === 'news' ? '重新浏览' : '再来一次'}</button>
+            <button class="btn btn-ghost" data-action="title">${story.meta.site?.kind === 'news' ? '返回首页' : '返回标题'}</button>
           </div>
         </section>
       </main>`

@@ -4,8 +4,15 @@ import { validate, validateExperience } from './validate.js'
 import { Game } from './engine.js'
 import { walkAllEndings, type EndingWitness } from './walk.js'
 import { makeStory } from './fixtures.js'
+import { SiteConfigSchema } from './schema.js'
 
 describe('validate 静态校验', () => {
+  it('拟态站点契约只接受受控新闻站字段', () => {
+    expect(SiteConfigSchema.safeParse({ kind: 'news', name: '测试日报' }).success).toBe(true)
+    expect(SiteConfigSchema.safeParse({ kind: 'forum', name: '测试论坛' }).success).toBe(false)
+    expect(SiteConfigSchema.safeParse({ kind: 'news', name: '测试日报', loginForm: true }).success).toBe(false)
+  })
+
   it('合法剧情返回空问题列表', () => {
     expect(validate(makeStory())).toEqual([])
   })
@@ -92,9 +99,28 @@ describe('validate 静态校验', () => {
     expect(all).toContain('同时聚焦了多个角色')
     expect(all).toContain('位置 "left" 被多个角色占用')
   })
+
+  it('拒绝脱离全局站点的拟态页面元数据', () => {
+    const story = makeStory()
+    story.nodes.start.page = { layout: 'article', headline: '孤立报道' }
+    expect(validate(story)).toContain('节点 "start" 声明了 page，但 meta.site 未配置拟态网站')
+
+    story.meta.site = { kind: 'news', name: '测试日报' }
+    expect(validate(story)).not.toContain('节点 "start" 声明了 page，但 meta.site 未配置拟态网站')
+  })
 })
 
 describe('validateExperience 非阻断体验校验', () => {
+  it('提示把舞台用于过多普通节点以及空拟态站点', () => {
+    const story = makeStory()
+    story.meta.site = { kind: 'news', name: '测试日报' }
+    for (const node of Object.values(story.nodes).slice(0, 5)) node.stage = { lighting: 'warm' }
+
+    const warnings = validateExperience(story).join('\n')
+    expect(warnings).toContain('stage 只用于特殊剧情与过场动画')
+    expect(warnings).toContain('没有节点声明 page 页面语义')
+  })
+
   it('提示缺少目标、推论方向、谜题场景绑定和结案后果文案', () => {
     const story = makeStory()
     story.evidence = {

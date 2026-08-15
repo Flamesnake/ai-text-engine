@@ -17,6 +17,7 @@ import {
   CharacterSchema,
   PuzzleSchema,
   SoundscapeSpecSchema,
+  SiteConfigSchema,
   StateAxisConfigSchema,
 } from '../core/schema.js'
 
@@ -68,7 +69,7 @@ server.tool(
 
 server.tool(
   'story_upsert_node',
-  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, sfx?, soundscape?, stage?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。choice 可带短 response，点击后显示在目标正文前，适合不同选项汇入同一节点时承接玩家行动。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。soundscape 是受控持续声景对象或 silence，只在声音变化处声明。stage 是受控舞台差异 cue 或 clear，未声明会沿用，不要逐节点复制完整配置。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
+  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, sfx?, soundscape?, stage?, page?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。choice 可带短 response，点击后显示在目标正文前，适合不同选项汇入同一节点时承接玩家行动。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。soundscape 是受控持续声景对象或 silence，只在声音变化处声明。stage 仅用于特殊剧情/过场，是受控舞台差异 cue 或 clear。page 为拟态网站页面语义 {layout?,section?,headline?,byline?,timestamp?}，不承载链接；网站导航仍用 choices。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
   { title: z.string(), node: StrictStoryNodeSchema },
   wrap('story_upsert_node', (args) => handlers.upsertNode(args)),
 )
@@ -271,7 +272,7 @@ server.tool(
 
 server.tool(
   'story_set_meta',
-  '更新项目元信息：副标题/作者/主题/HUD/初始声景，以及 world、phase 两条结构化状态轴。状态轴格式为 {initial, states:{状态id:{label?, theme?, presentation?, soundscape?}}}；用 choice/onEnter effects.world 或 effects.phase 切换，用 #world/#phase 条件控制选项。',
+  '更新项目元信息：副标题/作者/主题/HUD/初始声景、拟态网站 site，以及 world、phase 两条结构化状态轴。site 首期支持 {kind:"news",name,tagline?,locale?}；节点用 page 补页面语义，所有导航继续使用 choices。状态轴格式为 {initial, states:{状态id:{label?, theme?, presentation?, soundscape?}}}；用 choice/onEnter effects.world 或 effects.phase 切换，用 #world/#phase 条件控制选项。',
   {
     title: z.string(),
     subtitle: z.string().optional(),
@@ -279,6 +280,7 @@ server.tool(
     theme: z.union([z.string(), ThemeConfigSchema]).optional(),
     hud: z.array(HudStatSchema).optional(),
     presentation: PresentationConfigSchema.optional(),
+    site: SiteConfigSchema.optional(),
     soundscape: SoundscapeSpecSchema.optional(),
     world: StateAxisConfigSchema.optional(),
     phase: StateAxisConfigSchema.optional(),

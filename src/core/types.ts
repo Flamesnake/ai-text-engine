@@ -270,6 +270,25 @@ export interface PresentationConfig {
   choiceStyle?: 'buttons' | 'list' | 'dialogue' | 'commands'
 }
 
+/** 拟态网页的全局站点身份。首个纵向切片只支持新闻站。 */
+export interface SiteConfig {
+  kind: 'news'
+  /** 站点抬头；与作品真实标题分离，避免一眼暴露游戏外壳。 */
+  name: string
+  tagline?: string
+  /** 页眉中的短地区/频道标识，如“汐见町”。 */
+  locale?: string
+}
+
+/** 当前节点在拟态网站中的页面语义；选项仍是唯一导航与剧情行动。 */
+export interface WebPageMeta {
+  layout?: 'frontpage' | 'article' | 'bulletin'
+  section?: string
+  headline?: string
+  byline?: string
+  timestamp?: string
+}
+
 /** world/phase 状态对应的受控表现覆盖；逻辑选项仍通过 #world/#phase 条件控制。 */
 export interface StateAppearance {
   label?: string
@@ -382,6 +401,8 @@ export interface StoryNode {
   presentation?: PresentationConfig
   /** 受控舞台调度差异，或 clear 撤下舞台。 */
   stage?: StageCue | 'clear'
+  /** 拟态网页页面元数据；不承载链接或剧情状态。 */
+  page?: WebPageMeta
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
   /** 可在本场景直接交互的谜题 id。未被任何节点绑定的旧谜题仍按全局谜题处理。 */
@@ -416,6 +437,8 @@ export interface StoryMeta {
   theme?: string | ThemeConfig
   /** 全局视觉表达；未提供的维度使用可靠默认值。 */
   presentation?: PresentationConfig
+  /** 可选拟态网站身份；页面导航继续复用节点 choices。 */
+  site?: SiteConfig
   /** 新游戏的初始持续声景；节点可声明切换或 silence。 */
   soundscape?: SoundscapeSpec
   /** 表世界/里世界等叙事位面。 */

@@ -78,6 +78,12 @@ export interface StoryEvaluation {
       lightingUsage: Array<{ name: string; count: number }>
       cameraUsage: Array<{ name: string; count: number }>
     }
+    site: {
+      kind: string | null
+      pageNodes: number
+      layoutUsage: Array<{ name: string; count: number }>
+      pagesWithHeadline: number
+    }
     stateAxes: {
       worldStates: number
       phaseStates: number
@@ -194,6 +200,8 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
     node.stage && node.stage !== 'clear' && node.stage.camera ? [node.stage.camera] : []), 'name')
   const repeatedStageCues = countBy(stageCueNodes.map((node) => stableSerialize(node.stage)), 'cue')
     .filter((item) => item.count >= 3)
+  const pageNodes = nodes.filter((node) => node.page)
+  const pageLayoutUsage = countBy(pageNodes.map((node) => node.page?.layout ?? 'article'), 'name')
   const walk = options.walk ?? walkAllEndings(story, {
     ...options.walkOptions,
     diagnostics: options.walkOptions?.diagnostics ?? true,
@@ -406,6 +414,19 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
       evidence: repeatedStageCues.slice(0, 5).map((item) => `${item.count}x ${item.cue.slice(0, 120)}`),
     })
   }
+  if (stageCueNodes.length >= 5 && stageCueNodes.length / Math.max(1, nodes.length) > 0.3) {
+    findings.push({
+      code: 'STAGE_OVERUSE', severity: 'warning',
+      message: `${stageCueNodes.length}/${nodes.length} 个节点声明舞台 cue；舞台只应用于特殊剧情与过场动画，普通调查和常规对白应使用文字界面`,
+      evidence: stageCueNodes.slice(0, 12).map((node) => node.id),
+    })
+  }
+  if (story.meta.site && pageNodes.length === 0) {
+    findings.push({
+      code: 'SITE_SHELL_UNUSED', severity: 'warning',
+      message: '已配置拟态网站身份，但没有节点声明 page 页面语义',
+    })
+  }
   if (!walk.coverage.complete || walk.budget.utilization >= 0.8) {
     findings.push({
       code: !walk.coverage.complete ? 'WALK_COVERAGE_INCOMPLETE' : 'WALK_BUDGET_HIGH',
@@ -509,6 +530,12 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
         backdropUsage,
         lightingUsage,
         cameraUsage,
+      },
+      site: {
+        kind: story.meta.site?.kind ?? null,
+        pageNodes: pageNodes.length,
+        layoutUsage: pageLayoutUsage,
+        pagesWithHeadline: pageNodes.filter((node) => Boolean(node.page?.headline?.trim())).length,
       },
       stateAxes: {
         worldStates: Object.keys(story.meta.world?.states ?? {}).length,
