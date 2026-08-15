@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountTextAdventure, resolveSoundscapeForHistory } from './runtime.js'
+import { mountTextAdventure, resolveSoundscapeForHistory, resolveStageForHistory } from './runtime.js'
 import { makeStory } from '../core/fixtures.js'
 
 /** 内存版 Storage（用于注入，避免污染真实 localStorage） */
@@ -51,11 +51,71 @@ describe('持续声景状态恢复', () => {
   })
 })
 
+describe('受控舞台状态恢复', () => {
+  it('沿历史合并差异 cue，actors 整体替换，clear 撤台', () => {
+    const story = makeStory()
+    story.nodes.start.stage = { backdrop: 'archive', lighting: 'warm' }
+    story.nodes.armed.stage = {
+      camera: 'close',
+      actors: [{ characterId: 'alice', position: 'center', focus: true }],
+    }
+    story.nodes.unarmed.stage = 'clear'
+
+    expect(resolveStageForHistory(story, ['start', 'armed'])).toEqual({
+      backdrop: 'archive', lighting: 'warm', camera: 'close',
+      actors: [{ characterId: 'alice', position: 'center', focus: true }],
+    })
+    expect(resolveStageForHistory(story, ['start', 'unarmed'])).toBeNull()
+  })
+
+  it('push 与 entrance 只在声明节点播放一次，后续恢复静态状态', () => {
+    const story = makeStory()
+    story.nodes.start.stage = {
+      camera: 'push',
+      actors: [{ characterId: 'alice', position: 'center', entrance: 'fade' }],
+    }
+
+    expect(resolveStageForHistory(story, ['start'])?.camera).toBe('push')
+    expect(resolveStageForHistory(story, ['start', 'armed'])).toEqual({
+      camera: 'close', actors: [{ characterId: 'alice', position: 'center' }],
+    })
+  })
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
 })
 
 describe('mountTextAdventure 运行时集成', () => {
+  it('渲染程序化舞台、角色站位、焦点、姿态与入场 cue', () => {
+    const story = makeStory()
+    story.characters = {
+      alice: { id: 'alice', name: '爱丽丝', description: '测试角色。' },
+      bob: { id: 'bob', name: '鲍勃', description: '测试角色。' },
+    }
+    story.nodes.start.stage = {
+      backdrop: 'archive', lighting: 'spotlight', camera: 'push',
+      actors: [
+        { characterId: 'alice', position: 'left', pose: 'tense', entrance: 'slide' },
+        { characterId: 'bob', position: 'right', pose: 'shadow', focus: true, entrance: 'fade' },
+      ],
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:stage', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const stage = root.querySelector<HTMLElement>('[data-stage]')!
+    expect(stage.dataset.backdrop).toBe('archive')
+    expect(stage.classList.contains('stage-light-spotlight')).toBe(true)
+    expect(stage.classList.contains('stage-camera-push')).toBe(true)
+    expect(root.querySelector('[data-stage-actor="alice"]')?.className).toContain('stage-pos-left')
+    expect(root.querySelector('[data-stage-actor="alice"]')?.className).toContain('stage-enter-slide')
+    expect(root.querySelector('[data-stage-actor="bob"]')?.getAttribute('data-focus')).toBe('true')
+    expect(stage.getAttribute('aria-label')).toContain('爱丽丝')
+  })
+
   it('宿主可显式销毁实例并清空持续运行资源', async () => {
     const root = document.createElement('div')
     document.body.append(root)
@@ -162,11 +222,16 @@ describe('mountTextAdventure 运行时集成', () => {
   )
 
   it('完整游玩流程：标题屏 → 开始 → 拿剑 → 战斗 → 好结局，且存档写入', () => {
+    const story = makeStory()
+    story.nodes.fight.stage = {
+      backdrop: 'shore', lighting: 'warm', camera: 'wide',
+      actors: [{ characterId: 'alice', position: 'center', pose: 'open' }],
+    }
     const root = document.createElement('div')
     document.body.appendChild(root)
     const { storage, map } = memoryStorage()
 
-    mountTextAdventure(root, makeStory(), { saveKey: 'test:1', storage })
+    mountTextAdventure(root, story, { saveKey: 'test:1', storage })
 
     // 标题屏
     expect(root.querySelector<HTMLButtonElement>('[data-action="start"]')).not.toBeNull()
@@ -193,6 +258,8 @@ describe('mountTextAdventure 运行时集成', () => {
     btns[0].click()
     expect(root.querySelector('.ending-title')?.textContent).toBe('好结局')
     expect(root.querySelector('.ending-good .ending-badge')?.textContent).toContain('生还')
+    expect(root.querySelector<HTMLElement>('[data-stage]')?.dataset.backdrop).toBe('shore')
+    expect(root.querySelector('[data-stage-actor="alice"]')?.className).toContain('stage-pose-open')
 
     // 存档已写入
     expect(map.get('test:1')).toBeTruthy()

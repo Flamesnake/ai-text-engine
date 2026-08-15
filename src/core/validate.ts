@@ -55,6 +55,26 @@ export function validate(story: Story): string[] {
         problems.push(`节点 "${node.id}" 的 title 文本块缺少 title 字段`)
       }
     }
+    if (node.stage && node.stage !== 'clear') {
+      const actors = node.stage.actors ?? []
+      const focused = actors.filter((actor) => actor.focus)
+      if (focused.length > 1) problems.push(`节点 "${node.id}" 的舞台同时聚焦了多个角色`)
+      const actorIds = new Set<string>()
+      const positions = new Set<string>()
+      for (const actor of actors) {
+        if (!story.characters?.[actor.characterId]) {
+          problems.push(`节点 "${node.id}" 的舞台引用了不存在的角色 "${actor.characterId}"`)
+        }
+        if (actorIds.has(actor.characterId)) {
+          problems.push(`节点 "${node.id}" 的舞台重复放置角色 "${actor.characterId}"`)
+        }
+        if (positions.has(actor.position)) {
+          problems.push(`节点 "${node.id}" 的舞台位置 "${actor.position}" 被多个角色占用`)
+        }
+        actorIds.add(actor.characterId)
+        positions.add(actor.position)
+      }
+    }
   }
 
   // 文档表：条目完整 + gainDocs 引用存在

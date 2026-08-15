@@ -70,6 +70,14 @@ export interface StoryEvaluation {
     sfxUsage: Array<{ name: string; count: number }>
     soundscapeUsage: Array<{ name: string; count: number }>
     fxUsage: Array<{ name: string; count: number }>
+    stage: {
+      cueNodes: number
+      clearNodes: number
+      actorPlacements: number
+      backdropUsage: Array<{ name: string; count: number }>
+      lightingUsage: Array<{ name: string; count: number }>
+      cameraUsage: Array<{ name: string; count: number }>
+    }
     stateAxes: {
       worldStates: number
       phaseStates: number
@@ -176,6 +184,16 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
     }))
   const highIntensityFx = nodes.filter((node) => (node.fx ?? []).some((item) =>
     typeof item !== 'string' && (item.intensity ?? 1) >= 1.5))
+  const stageCueNodes = nodes.filter((node) => node.stage && node.stage !== 'clear')
+  const stageClearNodes = nodes.filter((node) => node.stage === 'clear')
+  const backdropUsage = countBy(stageCueNodes.flatMap((node) =>
+    node.stage && node.stage !== 'clear' && node.stage.backdrop ? [node.stage.backdrop] : []), 'name')
+  const lightingUsage = countBy(stageCueNodes.flatMap((node) =>
+    node.stage && node.stage !== 'clear' && node.stage.lighting ? [node.stage.lighting] : []), 'name')
+  const cameraUsage = countBy(stageCueNodes.flatMap((node) =>
+    node.stage && node.stage !== 'clear' && node.stage.camera ? [node.stage.camera] : []), 'name')
+  const repeatedStageCues = countBy(stageCueNodes.map((node) => stableSerialize(node.stage)), 'cue')
+    .filter((item) => item.count >= 3)
   const walk = options.walk ?? walkAllEndings(story, {
     ...options.walkOptions,
     diagnostics: options.walkOptions?.diagnostics ?? true,
@@ -381,6 +399,13 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
       evidence: highIntensityFx.slice(0, 10).map((node) => node.id),
     })
   }
+  if (repeatedStageCues.length > 0) {
+    findings.push({
+      code: 'REPEATED_STAGE_CUE', severity: 'info',
+      message: `${repeatedStageCues.reduce((sum, item) => sum + item.count, 0)} 个节点重复完整舞台配置；舞台会沿剧情历史持续，请只在背景、灯光、镜头或角色变化时声明差异`,
+      evidence: repeatedStageCues.slice(0, 5).map((item) => `${item.count}x ${item.cue.slice(0, 120)}`),
+    })
+  }
   if (!walk.coverage.complete || walk.budget.utilization >= 0.8) {
     findings.push({
       code: !walk.coverage.complete ? 'WALK_COVERAGE_INCOMPLETE' : 'WALK_BUDGET_HIGH',
@@ -476,6 +501,15 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
       sfxUsage,
       soundscapeUsage,
       fxUsage,
+      stage: {
+        cueNodes: stageCueNodes.length,
+        clearNodes: stageClearNodes.length,
+        actorPlacements: stageCueNodes.reduce((sum, node) =>
+          sum + (node.stage && node.stage !== 'clear' ? (node.stage.actors?.length ?? 0) : 0), 0),
+        backdropUsage,
+        lightingUsage,
+        cameraUsage,
+      },
       stateAxes: {
         worldStates: Object.keys(story.meta.world?.states ?? {}).length,
         phaseStates: Object.keys(story.meta.phase?.states ?? {}).length,

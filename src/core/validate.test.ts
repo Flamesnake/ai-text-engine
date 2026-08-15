@@ -73,6 +73,25 @@ describe('validate 静态校验', () => {
     expect(all).toContain('"courag"')
     expect(all).not.toContain('"courage"')
   })
+
+  it('校验舞台角色引用、焦点与站位冲突', () => {
+    const story = makeStory()
+    story.characters = {
+      alice: { id: 'alice', name: '爱丽丝', description: '测试角色。' },
+    }
+    story.nodes.start.stage = {
+      backdrop: 'interior',
+      actors: [
+        { characterId: 'alice', position: 'left', focus: true },
+        { characterId: 'missing', position: 'left', focus: true },
+      ],
+    }
+
+    const all = validate(story).join('\n')
+    expect(all).toContain('不存在的角色 "missing"')
+    expect(all).toContain('同时聚焦了多个角色')
+    expect(all).toContain('位置 "left" 被多个角色占用')
+  })
 })
 
 describe('validateExperience 非阻断体验校验', () => {

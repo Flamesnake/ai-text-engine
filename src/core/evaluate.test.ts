@@ -51,6 +51,30 @@ describe('evaluateStory 作品评估', () => {
     expect(report.findings.map((finding) => finding.code)).not.toContain('UNUSED_WORLD_STATES')
   })
 
+  it('统计舞台调度并提示重复完整 cue', () => {
+    const story = makeStory()
+    story.characters = { alice: { id: 'alice', name: '爱丽丝', description: '角色。' } }
+    const cue = {
+      backdrop: 'archive' as const,
+      lighting: 'spotlight' as const,
+      camera: 'close' as const,
+      actors: [{ characterId: 'alice', position: 'center' as const, focus: true }],
+    }
+    story.nodes.start.stage = structuredClone(cue)
+    story.nodes.armed.stage = structuredClone(cue)
+    story.nodes.unarmed.stage = structuredClone(cue)
+    story.nodes.fight.stage = 'clear'
+
+    const report = evaluateStory(story)
+    expect(report.presentation.stage).toMatchObject({
+      cueNodes: 3, clearNodes: 1, actorPlacements: 3,
+      backdropUsage: [{ name: 'archive', count: 3 }],
+      lightingUsage: [{ name: 'spotlight', count: 3 }],
+      cameraUsage: [{ name: 'close', count: 3 }],
+    })
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'REPEATED_STAGE_CUE' }))
+  })
+
   it('统计富文本片段、条件揭示与样式使用', () => {
     const story = makeStory()
     story.nodes.start.blocks = [{
