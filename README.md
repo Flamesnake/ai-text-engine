@@ -125,7 +125,7 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 | `story_new` | 创建项目（写 `projects/<标题>/story.json` 骨架）；已存在则复用 |
 | `story_get` | 读取整个剧情 JSON |
 | `story_get_node` | 读取单个节点及其入边，避免局部修稿时全量读取 |
-| `story_review_transitions` | 分页返回源末段、选项承接和目标首段，用于连续性审查 |
+| `story_review_transitions` | 分页返回源末段、选项承接和目标首段；`onlyRisks:true` 优先定位缺承接与机械重复 |
 | `story_patch_choice` | 只修改一个选项；可断言旧 label/target 防止按过期索引误改 |
 | `story_upsert_node` | 创建/覆盖节点（结局自动登记到结局表） |
 | `story_delete_node` | 删除节点（有引用时需 `force: true`，会报告断链） |
@@ -136,9 +136,9 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 | `story_upsert_deduction` / `story_delete_deduction` | 添加/删除证据组合推论 |
 | `story_upsert_character` / `story_delete_character` | 添加/删除包含关系维度与秘密的人物 |
 | `story_upsert_puzzle` / `story_delete_puzzle` | 添加/删除密码谜题、渐进提示与成功效果 |
-| `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
-| `story_evaluate` | 作品体验评估：互动、机制、演出、重复导航与 walk 健康度；不打总分 |
-| `story_walk` | 结局见证与覆盖诊断（可重放路径 / 预算占用 / 热点节点；可调 `maxStates` 等参数） |
+| `story_validate` | 校验 + 路径探索模拟；反复修订时可用 `compact:true` 省略长见证动作 |
+| `story_evaluate` | 作品体验评估；支持 `compact:true`，不打总分 |
+| `story_walk` | 结局见证与覆盖诊断；支持 `compact:true`，最终重放前再取完整动作 |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
 | `story_export` | 导出单文件 HTML（校验不通过时拒绝） |
 | `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** / **初始持续声景** |
@@ -149,8 +149,8 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 
 项目数据存放在 `projects/<标题>/story.json`，导出物在 `projects/<标题>/dist/index.html`。
 
-复杂开放结构可调用
-`story_walk { title, diagnostics: true, topNodes: 10, maxStates?: 100000, witnessMaxStates?: 25000 }`。
+复杂开放结构调试时先调用
+`story_walk { title, compact: true, diagnostics: true, topNodes: 10, maxStates?: 100000, witnessMaxStates?: 25000 }`。
 `reachability` 为每个已证明可达的结局返回一条可重放 `witness`；`failures.witnesses` 返回已经找到的
 条件软锁与无结局终点路线，`failures.complete` 表示失败搜索是否完整。即使全量探索超出
 `maxStates`，walker 也会在每个缺失结局上追加一次目标导向搜索。`coverage.complete` 单独表示
@@ -160,12 +160,12 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 再用 `node scripts/verify-dom-witnesses.mjs "作品名"` 自动操作真实运行时的选项、推理板、谜题输入与返回按钮，并确认失败见证确实会把玩家锁住；发现失败路径时命令以非零状态退出。
 两者都不会评价谜题公平性、文案提示和演出节奏，不能完全替代人工试玩。
 
-导出前可调用 `story_evaluate { title }` 集中检查作品。它返回事实指标与带证据的候选问题，
-包括无状态自循环、重复选择结果和未回收的证据/推论/谜题；不输出总分，也不会因题材未采用谜题或人物关系而机械告警。第一轮校准基线见
+导出前可调用 `story_evaluate { title, compact: true }` 集中检查作品。它返回事实指标与带证据的候选问题，
+包括无状态自循环、重复选择结果、response 重复目标开头和未回收的证据/推论/谜题；摘要中的节点、选项、成就等数量可直接用于交付报告。它不输出总分，也不会因题材未采用谜题或人物关系而机械告警。第一轮校准基线见
 [`docs/evals/evaluation-baseline.md`](docs/evals/evaluation-baseline.md)。
 
 盲测前调用 `story_observability_reset {}`，完成后调用 `story_observability {}`，可得到本次 MCP
-进程内的调用次数、失败、请求/响应字节、粗略 token、耗时、全量/单节点读取、转场审查、walk、导出和重复覆盖摘要。
+进程内的调用次数、失败、请求/响应字节、粗略 token、耗时、全量/单节点读取、转场审查、walk、导出和重复覆盖摘要。`tools` 明细可按响应字节与耗时定位最昂贵的调用；交付报告不要只抄总量。
 摘要只保留聚合数字与资源 id，不记录剧情正文，也不等同于模型平台账单。
 
 ## 剧情数据格式

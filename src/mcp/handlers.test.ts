@@ -236,6 +236,32 @@ describe('story_validate / story_walk', () => {
     expect(res.walk.reachability.witnessSearch.limitPerEnding).toBe(10)
   })
 
+  it('紧凑 validate/walk 保留结论并省略见证动作', async () => {
+    await createTestProject()
+    const validated = (await handlers.validateStory({ title: '测试游戏', compact: true })) as {
+      compact: boolean
+      walk: { reachability: { witnesses: Array<{ actions?: unknown[] }> } }
+    }
+    const walked = (await handlers.walkStory({ title: '测试游戏', compact: true })) as {
+      compact: boolean
+      walk: { reachability: { witnesses: Array<{ actions?: unknown[] }> } }
+    }
+
+    expect(validated.compact).toBe(true)
+    expect(validated.walk.reachability.witnesses[0].actions).toBeUndefined()
+    expect(walked.compact).toBe(true)
+    expect(walked.walk.reachability.witnesses[0].actions).toBeUndefined()
+  })
+
+  it('紧凑 evaluate 省略内嵌 walk 的见证动作', async () => {
+    await createTestProject()
+    const evaluated = (await handlers.evaluateProject({ title: '测试游戏', compact: true })) as {
+      evaluation: { performance: { walk: { reachability: { witnesses: Array<{ actions?: unknown[] }> } } } }
+    }
+
+    expect(evaluated.evaluation.performance.walk.reachability.witnesses[0].actions).toBeUndefined()
+  })
+
   it('断链剧情校验失败并给出问题列表', async () => {
     await createTestProject()
     const node: StoryNode = {

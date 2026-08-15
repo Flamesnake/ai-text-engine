@@ -61,7 +61,9 @@
 
 检查：代词是否有明确指向；人物位置和手中物件是否连续；目标节点是否回应了选择；时间是否无故跳跃；共同节点是否错误假定了某一条分支。优先检查汇流边、关系选择、进入结局前的边和跨 world/phase 的边。
 
-使用 `story_review_transitions { title, limit: 20 }` 分页取得紧凑边清单；每项已经包含源节点末段、选项、`response` 和目标首段。不要为了检查衔接反复调用 `story_get`。
+先使用 `story_review_transitions { title, onlyRisks: true, limit: 50 }` 取得确定性风险，再使用 `onlyRisks:false` 分页连读其余关键边；每项已经包含源节点末段、选项、`response` 和目标首段。不要为了检查衔接反复调用 `story_get`。
+
+`response_repeats_target_opening` 表示 response 与目标节点第一句完整重复或高度重合。这是保守的短文本相似候选，不是文学质量判决。不要简单删除 response：应让它保留玩家动作的即时后果，再让目标正文从新的状态继续。例如不要连续显示“标本展厅只剩一盏灯／标本展厅的灯只剩一盏”，可以把 response 改为“你推开防火门，最后一根灯管闪了两次”，目标节点再从人物或物件的变化继续。
 
 修订时根据返回的 `sourceNodeId`、`choiceIndex`、`label` 和 `targetNodeId` 调用：
 
@@ -76,4 +78,4 @@
 }
 ```
 
-旧值断言冲突时重新读取该节点，不要改用过期索引强行覆盖。`story_evaluate` 的 `CONVERGING_CHOICES_WITHOUT_RESPONSE` 和审查工具的 `risks` 只定位确定性结构风险，不能代替人工连读。
+旧值断言冲突时重新读取该节点，不要改用过期索引强行覆盖。`story_evaluate` 的 `CONVERGING_CHOICES_WITHOUT_RESPONSE`、`RESPONSE_REPEATS_TARGET_OPENING` 和审查工具的 `risks` 只定位确定性结构风险，不能代替人工连读。

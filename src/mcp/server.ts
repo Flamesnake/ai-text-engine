@@ -93,9 +93,9 @@ server.tool(
 
 server.tool(
   'story_validate',
-  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义），附路径探索统计和非阻断 experienceWarnings（目标、机制可发现性与结案后果）。',
-  { title: z.string() },
-  wrap('story_validate', (args) => handlers.validateStory(args.title)),
+  '校验剧情完整性（断链/结局规范/不可达节点/变量拼写/成就定义），附路径探索统计和非阻断 experienceWarnings。反复修订时传 compact:true，保留结论但省略长见证动作。',
+  { title: z.string(), compact: z.boolean().optional() },
+  wrap('story_validate', (args) => handlers.validateStory(args)),
 )
 
 server.tool(
@@ -135,7 +135,7 @@ server.tool(
 
 server.tool(
   'story_review_transitions',
-  '分页返回紧凑的“源节点末段 → 选项 → response → 目标节点首段”审查包，用于检查选择关联、人物位置、因果与语气连续性。默认每页 20 条；onlyRisks 只筛确定性结构风险，不能代替人工阅读。',
+  '分页返回紧凑的“源节点末段 → 选项 → response → 目标节点首段”审查包，用于检查选择关联、人物位置、因果与语气连续性。默认每页 20 条；先用 onlyRisks:true 处理缺承接及 response 重复目标开头，再分页人工连读其余边。',
   {
     title: z.string(),
     nodeIds: z.array(z.string()).max(50).optional(),
@@ -228,6 +228,7 @@ server.tool(
     witnessMaxStates: z.number().int().positive().optional(),
     diagnostics: z.boolean().optional(),
     topNodes: z.number().int().positive().max(50).optional(),
+    compact: z.boolean().optional(),
   },
   wrap('story_walk', (args) => handlers.walkStory(args)),
 )
@@ -239,6 +240,7 @@ server.tool(
     title: z.string(),
     maxStates: z.number().int().positive().optional(),
     witnessMaxStates: z.number().int().positive().optional(),
+    compact: z.boolean().optional(),
   },
   wrap('story_evaluate', (args) => handlers.evaluateProject(args)),
 )

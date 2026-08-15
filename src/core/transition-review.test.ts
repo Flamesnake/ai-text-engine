@@ -38,4 +38,28 @@ describe('reviewTransitions', () => {
     ])
     expect(report.summary).toMatchObject({ totalEdges: 4, candidateEdges: 3, riskyEdges: 3 })
   })
+
+  it('标记只是重复目标节点开头的机械 response', () => {
+    const story = makeStory()
+    story.nodes.start.choices = [
+      { label: '走进房间', target: 'armed', response: '房间里的灯忽然亮了。' },
+    ]
+    story.nodes.armed.text = '房间里的灯忽然亮了。桌上放着一封没有署名的信。'
+
+    const report = reviewTransitions(story, { onlyRisks: true })
+
+    expect(report.items).toHaveLength(1)
+    expect(report.items[0].risks).toContain('response_repeats_target_opening')
+  })
+
+  it('保守标记与目标开头高度重合但并非逐字相同的 response', () => {
+    const story = makeStory()
+    story.nodes.start.choices = [
+      { label: '走进展厅', target: 'armed', response: '标本展厅只剩一盏灯。' },
+    ]
+    story.nodes.armed.text = '标本展厅的灯只剩一盏。闻舟站在第三柜前。'
+
+    expect(reviewTransitions(story, { onlyRisks: true }).items[0].risks)
+      .toContain('response_repeats_target_opening')
+  })
 })

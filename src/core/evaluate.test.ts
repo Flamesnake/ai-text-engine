@@ -211,6 +211,50 @@ describe('evaluateStory 作品评估', () => {
     }))
   })
 
+  it('摘要包含可直接用于交付报告的成就数量', () => {
+    const story = makeStory()
+    story.achievements = [
+      { id: 'a_one', title: '第一次', description: '完成。', when: { op: 'eq', var: '#ending', value: 'e_win' } },
+      { id: 'a_two', title: '第二次', description: '再次完成。', when: { op: 'eq', var: '#ending', value: 'e_lose' } },
+    ]
+
+    expect(evaluateStory(story).summary.achievements).toBe(2)
+  })
+
+  it('指出 response 机械重复目标节点开头', () => {
+    const story = makeStory()
+    story.nodes.start.choices[0].response = '房间里的灯忽然亮了。'
+    story.nodes.armed.text = '房间里的灯忽然亮了。桌上放着一封信。'
+
+    const report = evaluateStory(story)
+
+    expect(report.narrative.responseRepeatsTargetOpening).toBe(1)
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'RESPONSE_REPEATS_TARGET_OPENING',
+    }))
+  })
+
+  it('大多数推论没有回收时提升为 warning', () => {
+    const story = makeStory()
+    story.evidence = {
+      e_one: { id: 'e_one', title: '证据一', description: '一。' },
+      e_two: { id: 'e_two', title: '证据二', description: '二。' },
+      e_three: { id: 'e_three', title: '证据三', description: '三。' },
+    }
+    story.deductions = {
+      d_used: { id: 'd_used', statement: '有效推论', requires: { all: ['e_one'] } },
+      d_unused_one: { id: 'd_unused_one', statement: '孤立推论一', requires: { all: ['e_two'] } },
+      d_unused_two: { id: 'd_unused_two', statement: '孤立推论二', requires: { all: ['e_three'] } },
+    }
+    story.nodes.start.choices[0].when = { op: 'eq', var: '#deduction', value: 'd_used' }
+
+    const report = evaluateStory(story)
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'UNRECOVERED_DEDUCTION', severity: 'warning',
+    }))
+  })
+
   it('指出只写不读、没有可见表现的 phase 状态', () => {
     const story = makeStory()
     story.meta.phase = { initial: 'day', states: { day: {}, night: {} } }

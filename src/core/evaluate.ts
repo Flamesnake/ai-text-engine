@@ -1,5 +1,6 @@
 import type { Condition, Effects, StateAppearance, Story, StoryNode } from './types.js'
 import { walkAllEndings, type WalkOptions, type WalkResult } from './walk.js'
+import { responseRepeatsTargetOpening } from './transition-review.js'
 
 export type EvaluationSeverity = 'info' | 'warning'
 
@@ -21,6 +22,7 @@ export interface StoryEvaluation {
     deductions: number
     characters: number
     puzzles: number
+    achievements: number
   }
   interaction: {
     nonEndingNodes: number
@@ -40,6 +42,7 @@ export interface StoryEvaluation {
     responseRatio: number
     convergingChoiceGroups: number
     convergingGroupsWithoutFullResponse: number
+    responseRepeatsTargetOpening: number
     repeatedOpenings: Array<{ opening: string; count: number }>
   }
   mechanics: {
@@ -139,6 +142,10 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
   const convergingWithoutResponse = convergingChoiceGroups.filter((group) =>
     group.choices.some((choice) => !choice.response?.trim()))
   const choicesWithResponse = choices.filter((choice) => Boolean(choice.response?.trim())).length
+  const repeatedResponseEntries = choiceEntries.filter(({ choice }) => {
+    const target = story.nodes[choice.target]
+    return Boolean(choice.response && target && responseRepeatsTargetOpening(choice.response, nodeText(target)))
+  })
   const repeatedOpenings = countBy(nodes.map(nodeOpening).filter((opening) => opening.length >= 12), 'opening')
     .filter((item) => item.count >= 3)
   const sfxUsage = countBy(nodes.flatMap((node) => node.sfx ? [node.sfx] : []), 'name')
@@ -245,7 +252,7 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
   const phaseSoundscapes = Object.values(story.meta.phase?.states ?? {}).filter((state) => state.soundscape !== undefined).length
   if (worldSoundscapes > 0 && phaseSoundscapes > 0) {
     findings.push({
-      code: 'OVERLAPPING_STATE_SOUNDSCAPES', severity: 'info',
+      code: 'OVERLAPPING_STATE_SOUNDSCAPES', severity: 'warning',
       message: `world 与 phase 都声明了状态声景（${worldSoundscapes}/${phaseSoundscapes}）；当前 phase 会覆盖 world，请确认一个轴负责基础声景，另一个轴只在必要处例外`,
     })
   }
@@ -290,6 +297,14 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
         `${item.nodeId} -> ${item.target}: ${item.choices.map((choice) => choice.label).join(' / ')}`),
     })
   }
+  if (repeatedResponseEntries.length > 0) {
+    findings.push({
+      code: 'RESPONSE_REPEATS_TARGET_OPENING', severity: 'info',
+      message: `${repeatedResponseEntries.length} 条 response 只是重复目标节点开头；即时承接应补充玩家行动造成的变化，而不是让同一句连续出现两次`,
+      evidence: repeatedResponseEntries.slice(0, 10).map(({ node, choice }) =>
+        `${node.id} -> ${choice.target}: ${choice.label}`),
+    })
+  }
   if (repeatedOpenings.length > 0) {
     findings.push({
       code: 'REPEATED_NODE_OPENING', severity: 'info',
@@ -306,7 +321,10 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
   addUnrecoveredFinding(findings, 'UNRECOVERED_EVIDENCE', '证据', unrecoveredEvidence,
     '没有被有效推论或条件引用；它可能只是阅读素材，也可能是尚未回收的调查结果')
   addUnrecoveredFinding(findings, 'UNRECOVERED_DEDUCTION', '推论', unrecoveredDeductions,
-    '确认后既不产生效果，也不改变条件、行动或结局')
+    '确认后既不产生效果，也不改变条件、行动或结局',
+    unrecoveredDeductions.length >= 2 && unrecoveredDeductions.length / Math.max(1, Object.keys(story.deductions ?? {}).length) >= 0.5
+      ? 'warning'
+      : 'info')
   addUnrecoveredFinding(findings, 'UNRECOVERED_PUZZLE', '谜题', unrecoveredPuzzles,
     '解开后既不产生效果，也不改变条件、行动或结局')
   const dominantSfx = sfxUsage[0]
@@ -398,6 +416,7 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
       deductions: Object.keys(story.deductions ?? {}).length,
       characters: Object.keys(story.characters ?? {}).length,
       puzzles: puzzleIds.size,
+      achievements: story.achievements?.length ?? 0,
     },
     interaction: {
       nonEndingNodes: nonEnding.length,
@@ -417,6 +436,7 @@ export function evaluateStory(story: Story, options: StoryEvaluationOptions = {}
       responseRatio: ratio(choicesWithResponse, choices.length),
       convergingChoiceGroups: convergingChoiceGroups.length,
       convergingGroupsWithoutFullResponse: convergingWithoutResponse.length,
+      responseRepeatsTargetOpening: repeatedResponseEntries.length,
       repeatedOpenings,
     },
     mechanics: {
@@ -512,13 +532,21 @@ function addUnrecoveredFinding(
   label: string,
   ids: string[],
   explanation: string,
+  severity: EvaluationSeverity = 'info',
 ): void {
   if (ids.length === 0) return
   findings.push({
-    code, severity: 'info',
+    code, severity,
     message: `${ids.length} 个${label}${explanation}`,
     evidence: ids.slice(0, 10),
   })
+}
+
+function nodeText(node: StoryNode): string {
+  if (node.blocks?.length) {
+    return node.blocks.map((block) => [block.title, block.text].filter(Boolean).join('：')).join('\n')
+  }
+  return node.text
 }
 
 function stableSerialize(value: unknown): string {
