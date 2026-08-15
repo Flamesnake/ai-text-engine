@@ -8,6 +8,15 @@
 ### 变更
 
 - GitHub 仓库由 `Flamesnake/ai-text-engine` 更名为 `Flamesnake/talespindle`，并更新 npm repository、homepage、bugs 与源码路径示例；旧 GitHub URL 由 GitHub 自动重定向。
+- `story_validate`、`story_walk` 与 `story_evaluate` 新增 `compact:true`：反复修订时保留可达性、覆盖、失败、预算和热点结论，但用动作数量代替完整见证动作数组，最终 DOM 重放前再请求完整输出。
+
+### 新增
+
+- 转场审查与作品评估会标记 `response` 机械重复目标节点开头；`onlyRisks:true` 可优先返回这类边。评估摘要补充成就数量，交付报告无需手工统计。
+
+### 修复
+
+- 当至少一半且不少于两条推论确认后不改变任何条件、行动、效果或结局时，评估严重度提升为 warning；world 与 phase 同时声明声景的覆盖风险同样提升为 warning。
 
 ## [0.2.0] - 2026-08-14
 

@@ -4,6 +4,7 @@ export type TransitionRisk =
   | 'missing_target'
   | 'self_loop_without_response'
   | 'converging_choices_without_response'
+  | 'response_repeats_target_opening'
 
 export interface TransitionReviewItem {
   sourceNodeId: string
@@ -76,6 +77,10 @@ function makeReviewItem(
   if (!story.nodes[choice.target]) risks.push('missing_target')
   if (choice.target === source.id && !choice.response?.trim()) risks.push('self_loop_without_response')
   if (sameTarget.length > 1 && !choice.response?.trim()) risks.push('converging_choices_without_response')
+  if (choice.response && story.nodes[choice.target] && responseRepeatsTargetOpening(
+    choice.response,
+    nodeText(story.nodes[choice.target]),
+  )) risks.push('response_repeats_target_opening')
   return {
     sourceNodeId: source.id,
     sourceTail: tail(nodeText(source), 160),
@@ -88,6 +93,20 @@ function makeReviewItem(
   }
 }
 
+/**
+ * 标记短 response 与目标第一句的完整重复或高重合候选。
+ * 不尝试理解同义句或判断文学质量；结果只用于缩小人工连读范围。
+ */
+export function responseRepeatsTargetOpening(response: string, targetText: string): boolean {
+  const normalizedResponse = normalizeForComparison(firstSentence(response))
+  const normalizedTarget = normalizeForComparison(firstSentence(targetText))
+  if (normalizedResponse.length < 6 || normalizedTarget.length < 6) return false
+  if (normalizedTarget.startsWith(normalizedResponse)) return true
+  const overlap = longestCommonSubstringLength(normalizedResponse, normalizedTarget)
+  if (overlap >= 6 && overlap / Math.min(normalizedResponse.length, normalizedTarget.length) >= 0.5) return true
+  return bigramDice(normalizedResponse, normalizedTarget) >= 0.68
+}
+
 function nodeText(node: StoryNode): string {
   if (node.blocks?.length) {
     return node.blocks.map((block) => [block.title, block.text].filter(Boolean).join('：')).join('\n')
@@ -97,6 +116,37 @@ function nodeText(node: StoryNode): string {
 
 function compact(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeForComparison(text: string): string {
+  return text.normalize('NFKC').replace(/[\s\p{P}\p{S}]+/gu, '').toLocaleLowerCase()
+}
+
+function firstSentence(text: string): string {
+  return text.split(/[。！？!?\n]/, 1)[0] ?? text
+}
+
+function longestCommonSubstringLength(left: string, right: string): number {
+  let previous = new Array<number>(right.length + 1).fill(0)
+  let longest = 0
+  for (let i = 1; i <= left.length; i++) {
+    const current = new Array<number>(right.length + 1).fill(0)
+    for (let j = 1; j <= right.length; j++) {
+      if (left[i - 1] === right[j - 1]) {
+        current[j] = previous[j - 1] + 1
+        longest = Math.max(longest, current[j])
+      }
+    }
+    previous = current
+  }
+  return longest
+}
+
+function bigramDice(left: string, right: string): number {
+  const leftBigrams = new Set(Array.from({ length: left.length - 1 }, (_, i) => left.slice(i, i + 2)))
+  const rightBigrams = new Set(Array.from({ length: right.length - 1 }, (_, i) => right.slice(i, i + 2)))
+  const overlap = [...leftBigrams].filter((item) => rightBigrams.has(item)).length
+  return (2 * overlap) / Math.max(1, leftBigrams.size + rightBigrams.size)
 }
 
 function head(text: string, length: number): string {

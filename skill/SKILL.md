@@ -44,9 +44,9 @@ description: 用 TaleSpindle 的 MCP 工具制作 HTML 互动叙事游戏。当�
 | `story_upsert_puzzle` / `story_delete_puzzle` | 管理密码谜题、渐进提示和成功效果 |
 | `story_set_meta` | 主题 / HUD 统计条 / 副标题 / 作者 / 初始持续声景 |
 | `story_set_presentation` | 用一组短枚举设置界面外壳、字体、密度、形状与选项风格 |
-| `story_validate` | 校验 + 路径探索模拟（结局覆盖统计） |
-| `story_evaluate` | 作品体验评估（互动 / 机制 / 演出 / 重复导航 / walk，不打总分） |
-| `story_walk` | 结局见证与覆盖诊断（可重放路径 / 预算占用 / 热点节点） |
+| `story_validate` | 校验 + 路径探索模拟；修订时用 `compact:true` 省略长见证动作 |
+| `story_evaluate` | 作品体验评估；支持紧凑输出，不打总分 |
+| `story_walk` | 结局见证与覆盖诊断；最终重放前再请求完整动作 |
 | `story_graph` | mermaid 分支图 |
 | `story_export` | 导出单文件 HTML（校验不过会拒绝） |
 | `story_list` / `story_delete_project` | 项目管理 |
@@ -68,12 +68,12 @@ description: 用 TaleSpindle 的 MCP 工具制作 HTML 互动叙事游戏。当�
 5. **推理设计**（按需）：先写“结局事实—游戏内来源”账本，再用 `story_upsert_evidence` 定义证据、用 `story_upsert_deduction` 定义玩家能由这些证据推出的最小命题与非剧透 `hint`；节点用 `gainEvidence` 发放证据，用 `#deduction` 解锁新内容。
 6. **人物关系**（按需）：用 `story_upsert_character` 定义人物、关系维度和秘密；关系变化同时写入 `remember`，秘密揭示应影响证据、对话或结局。
 7. **轻量谜题**（按需）：用 `story_upsert_puzzle` 定义 `actionLabel`、密码、前置条件、由轻到重的提示和成功效果；在相关节点的 `puzzles` 中放置谜题，用 `#puzzle` 解锁内容。
-8. **文本与转场修订**：正文完成后，用 `story_review_transitions { title, limit: 20 }` 分页连读关键边；按返回的 `choiceIndex/label/targetNodeId` 调用 `story_patch_choice` 局部补 `response` 或修正文案，并传 `expectedLabel`、`expectedTarget`。需要完整节点时用 `story_get_node`；不要为了修改一个选项读取并覆盖整部 story。
-9. **校验与走查**：`story_validate { title }` —— 通过且 `walk.reachability.allEndingsProven === true`、`unprovenEndings` 为空、`walk.failures.witnesses` 为空后再继续；逐条处理非阻断的 `experienceWarnings`。失败见证必须修复或明确判定为有意设计；`failures.complete === false` 时“未发现失败”不是完整结论。`coverage.complete === false` 表示全状态覆盖不完整，必须记录风险并查看原因，但不要仅为消除它而把合理的自由调查强行线性化。调用 `story_evaluate { title }` 做快速体验诊断；它默认只用较小 walk 预算，重点审查选择承接、无效状态轴、重复结果和未回收机制，不替代完整 `story_walk`。`info` 不等于必须修改，不要为追求漂亮比例机械改稿。接近预算或包含开放探索时读取 `references/walk-performance.md`，用 `story_walk { diagnostics: true }` 定位热点。用 `story_graph` 审查分支结构。
+8. **文本与转场修订**：正文完成后，先用 `story_review_transitions { title, onlyRisks: true, limit: 50 }` 集中处理缺承接、自环、断链和 response 重复目标开头，再用 `onlyRisks:false` 分页连读其余关键边。response 应写“玩家行动造成的即时变化”，不能只是复制目标节点第一句。按返回的 `choiceIndex/label/targetNodeId` 调用 `story_patch_choice` 局部修订，并传 `expectedLabel`、`expectedTarget`。需要完整节点时用 `story_get_node`；不要为了修改一个选项读取并覆盖整部 story。
+9. **校验与走查**：反复修订时使用 `story_validate { title, compact: true }` 与 `story_evaluate { title, compact: true }`，保留结论但不反复回传完整见证动作。通过且 `walk.reachability.allEndingsProven === true`、`unprovenEndings` 为空、`walk.failures.witnesses` 为空后再继续；逐条处理 `experienceWarnings` 和 severity 为 warning 的评估发现，不能只把它们抄进报告后宣称通过。失败见证必须修复或明确判定为有意设计；`failures.complete === false` 时“未发现失败”不是完整结论。`coverage.complete === false` 表示全状态覆盖不完整，必须记录风险并查看原因，但不要仅为消除它而把合理的自由调查强行线性化。`info` 不等于必须修改，不要为追求漂亮比例机械改稿。接近预算或包含开放探索时读取 `references/walk-performance.md`，用 `story_walk { compact: true, diagnostics: true }` 定位热点。只有运行时重放前才调用不带 compact 的完整 `story_walk`。用 `story_graph` 审查分支结构。
 10. **运行时验收**：静态校验与 walk 不能替代真实交互。读取 `references/runtime-testing.md`，优先重放 `walk.reachability.witnesses`，并实际操作至少一条完整真结局、一条错误结局和所有关键机制。
 11. **导出交付**：`story_export { title }`，把返回的 `outputPath`（`projects/<标题>/dist/index.html`）交给用户。
 
-需要比较 Agent 成本时，创作前调用 `story_observability_reset {}`，交付后调用 `story_observability {}`。其粗略 token 仅由 JSON 字节估算，用来发现全量读取和返工，不等同于模型平台真实 token。
+需要比较 Agent 成本时，创作前调用 `story_observability_reset {}`，交付后调用 `story_observability {}`。其粗略 token 仅由 JSON 字节估算，用来发现全量读取和返工，不等同于模型平台真实 token。交付报告除总量外，还应列出 `tools` 中响应字节或耗时最高的三个工具；节点、选项、成就和机制数量应直接引用 `story_evaluate.summary`，不要手工统计。
 
 ## 节点数据格式速查
 

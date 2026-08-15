@@ -5,7 +5,7 @@ import { validate, validateExperience } from '../core/validate.js'
 import { evaluateStory } from '../core/evaluate.js'
 import { ChoicePatchSchema, StrictStoryNodeSchema, type ChoicePatch } from '../core/schema.js'
 import { reviewTransitions, type TransitionReviewOptions } from '../core/transition-review.js'
-import { walkAllEndings, type WalkOptions } from '../core/walk.js'
+import { walkAllEndings, type WalkOptions, type WalkResult } from '../core/walk.js'
 import { exportToHtml } from '../export/exporter.js'
 import path from 'node:path'
 import * as projects from './projects.js'
@@ -157,20 +157,28 @@ export async function deleteEnding(args: { title: string; endingId: string }): P
   }
 }
 
-export async function validateStory(title: string): Promise<unknown> {
-  const story = await projects.loadStory(title)
+export interface ValidateStoryArgs {
+  title: string
+  /** 调试时省略长见证动作；结论、预算、热点与见证步数仍保留。 */
+  compact?: boolean
+}
+
+export async function validateStory(args: string | ValidateStoryArgs): Promise<unknown> {
+  const normalized = typeof args === 'string' ? { title: args, compact: false } : args
+  const story = await projects.loadStory(normalized.title)
   const problems = validate(story)
   const walk = walkAllEndings(story)
   const experienceWarnings = validateExperience(story)
   return {
     ok: true,
-    title,
+    title: normalized.title,
+    compact: normalized.compact ?? false,
     validatePass: problems.length === 0,
     problems,
     experienceWarnings,
     nodeCount: Object.keys(story.nodes).length,
     endingCount: Object.keys(story.endings).length,
-    walk,
+    walk: normalized.compact ? compactWalkResult(walk) : walk,
   }
 }
 
@@ -353,6 +361,8 @@ export interface EvaluateProjectArgs {
   /** 体验评估默认使用较小预算；完整可达性证明请调用 story_walk。 */
   maxStates?: number
   witnessMaxStates?: number
+  /** 省略评估内嵌 walk 的长见证动作，适合反复修订。 */
+  compact?: boolean
 }
 
 export async function evaluateProject(args: EvaluateProjectArgs | string): Promise<unknown> {
@@ -368,18 +378,22 @@ export async function evaluateProject(args: EvaluateProjectArgs | string): Promi
     ok: true,
     title: normalized.title,
     evaluationScope: 'quick_diagnostic',
-    evaluation,
+    evaluation: normalized.compact
+      ? { ...evaluation, performance: { walk: compactWalkResult(evaluation.performance.walk) } }
+      : evaluation,
   }
 }
 
 export interface WalkStoryArgs extends Omit<WalkOptions, 'rand' | 'targetEndingId'> {
   title: string
+  /** 省略长见证动作；最终 DOM 重放前再请求完整输出。 */
+  compact?: boolean
 }
 
 /** 独立路径诊断：允许调整探索预算，并默认返回热点节点以减少盲目改稿。 */
 export async function walkStory(args: WalkStoryArgs): Promise<unknown> {
   const story = await projects.loadStory(args.title)
-  const { title, ...options } = args
+  const { title, compact = false, ...options } = args
   const walk = walkAllEndings(story, {
     ...options,
     diagnostics: options.diagnostics ?? true,
@@ -387,9 +401,37 @@ export async function walkStory(args: WalkStoryArgs): Promise<unknown> {
   return {
     ok: true,
     title,
+    compact,
     nodeCount: Object.keys(story.nodes).length,
     endingCount: Object.keys(story.endings).length,
-    walk,
+    walk: compact ? compactWalkResult(walk) : walk,
+  }
+}
+
+function compactWalkResult(walk: WalkResult): Omit<WalkResult, 'reachability' | 'failures'> & {
+  reachability: Omit<WalkResult['reachability'], 'witnesses'> & {
+    witnesses: Array<Omit<WalkResult['reachability']['witnesses'][number], 'actions'> & { actionCount: number }>
+  }
+  failures: Omit<WalkResult['failures'], 'witnesses'> & {
+    witnesses: Array<Omit<WalkResult['failures']['witnesses'][number], 'actions'> & { actionCount: number }>
+  }
+} {
+  return {
+    ...walk,
+    reachability: {
+      ...walk.reachability,
+      witnesses: walk.reachability.witnesses.map(({ actions, ...witness }) => ({
+        ...witness,
+        actionCount: actions.length,
+      })),
+    },
+    failures: {
+      ...walk.failures,
+      witnesses: walk.failures.witnesses.map(({ actions, ...witness }) => ({
+        ...witness,
+        actionCount: actions.length,
+      })),
+    },
   }
 }
 
@@ -632,7 +674,7 @@ export const tools = {
   story_delete_character: (args: { title: string; characterId: string }) => deleteCharacter(args),
   story_upsert_puzzle: (args: { title: string; puzzle: Puzzle }) => upsertPuzzle(args),
   story_delete_puzzle: (args: { title: string; puzzleId: string }) => deletePuzzle(args),
-  story_validate: (args: { title: string }) => validateStory(args.title),
+  story_validate: (args: ValidateStoryArgs) => validateStory(args),
   story_evaluate: (args: EvaluateProjectArgs) => evaluateProject(args),
   story_walk: (args: WalkStoryArgs) => walkStory(args),
   story_graph: (args: { title: string }) => graph(args.title),
