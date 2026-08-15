@@ -1,5 +1,5 @@
 import { Game } from '../core/engine.js'
-import type { EndingMeta, GameState, PresentationConfig, SoundscapeSpec, StateAppearance, Story, StoryNode, TextBlock, TextSegment, ThemeConfig } from '../core/types.js'
+import type { EndingMeta, GameState, PresentationConfig, SoundscapeSpec, StageCue, StateAppearance, Story, StoryNode, TextBlock, TextSegment, ThemeConfig } from '../core/types.js'
 import { disposeSfx, initSfx, isMuted, playSfx, setSoundscape, toggleMuted, type SfxName } from './sfx.js'
 import { resolveTheme } from './themes.js'
 
@@ -43,6 +43,34 @@ export function resolveSoundscapeForHistory(
   const currentNodeSoundscape = story.nodes[history.at(-1) ?? '']?.soundscape
   if (currentNodeSoundscape === 'silence') current = null
   else if (currentNodeSoundscape) current = currentNodeSoundscape
+  return current
+}
+
+/** 由访问序列重建最近舞台；cue 按字段合并，actors 数组整体替换，clear 撤台。 */
+export function resolveStageForHistory(story: Story, history: readonly string[]): StageCue | null {
+  let current: StageCue | null = null
+  for (const [index, nodeId] of history.entries()) {
+    if (index > 0 && current) {
+      const previous: StageCue = current
+      current = {
+        ...previous,
+        ...(previous.camera === 'push' ? { camera: 'close' as const } : {}),
+        ...(previous.actors ? {
+          actors: previous.actors.map(({ entrance: _entrance, ...actor }) => actor),
+        } : {}),
+      }
+    }
+    const cue = story.nodes[nodeId]?.stage
+    if (cue === 'clear') {
+      current = null
+    } else if (cue) {
+      current = {
+        ...(current ?? {}),
+        ...cue,
+        ...(cue.actors !== undefined ? { actors: cue.actors } : {}),
+      }
+    }
+  }
   return current
 }
 
@@ -392,6 +420,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
         ${node.objective ? `<aside class="scene-objective"><strong>当前目标</strong><span>${esc(game.interpolate(node.objective))}</span></aside>` : ''}
         ${newEvidence.length > 0 ? `<aside class="evidence-notice"><strong>新证据</strong><span>${newEvidence.map((id) => esc(story.evidence?.[id]?.title ?? id)).join('、')}已加入推理板，可与其他证据组合。</span></aside>` : ''}
         ${tutorial ? tutorialBanner(tutorial) : ''}
+        ${renderStage()}
         <section class="card ${fx.cls}" style="${fx.style}">
           ${renderChoiceResponse()}
           ${renderBody(node)}
@@ -438,6 +467,33 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const trace = game.state.lastChoice
     if (!trace?.response || trace.targetNodeId !== game.state.nodeId) return ''
     return `<aside class="choice-response" data-choice-response="true">${esc(game.interpolate(trace.response))}</aside>`
+  }
+
+  function renderStage(): string {
+    const stage = resolveStageForHistory(story, game.state.history)
+    if (!stage) return ''
+    const backdrop = stage.backdrop ?? 'neutral'
+    const lighting = stage.lighting ?? 'natural'
+    const camera = stage.camera ?? 'medium'
+    const actors = stage.actors ?? []
+    const actorNames = actors.map((actor) => story.characters?.[actor.characterId]?.name ?? actor.characterId)
+    const label = [`${backdrop} 布景`, `${lighting} 灯光`, ...actorNames].join('，')
+    return `<section class="stage-scene stage-backdrop-${backdrop} stage-light-${lighting} stage-camera-${camera}" data-stage="true" data-backdrop="${backdrop}" data-lighting="${lighting}" data-camera="${camera}" role="img" aria-label="${esc(label)}">
+      <div class="stage-set" aria-hidden="true"></div>
+      <div class="stage-actors">
+        ${actors.map((actor) => {
+          const character = story.characters?.[actor.characterId]
+          const name = character?.name ?? actor.characterId
+          const initial = Array.from(name.trim())[0] ?? '·'
+          const pose = actor.pose ?? 'neutral'
+          const entrance = actor.entrance ?? 'none'
+          return `<figure class="stage-actor stage-pos-${actor.position} stage-pose-${pose} stage-enter-${entrance}${actor.focus ? ' stage-focus' : ''}" data-stage-actor="${esc(actor.characterId)}" data-position="${actor.position}" data-pose="${pose}"${actor.focus ? ' data-focus="true"' : ''}>
+            <div class="stage-actor-figure"><span>${esc(initial)}</span></div>
+            <figcaption>${esc(name)}</figcaption>
+          </figure>`
+        }).join('')}
+      </div>
+    </section>`
   }
 
   function renderBody(node: StoryNode): string {
@@ -755,6 +811,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           ${docsButton()}
           ${muteButtonHtml()}
         </header>
+        ${renderStage()}
         <section class="card card-ending ending-${ending.kind} ${fx.cls}" style="${fx.style}">
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>

@@ -328,6 +328,36 @@ export interface ChoiceTrace {
   response?: string
 }
 
+/** 受控舞台背景；由运行时生成程序化布景，不依赖外部图片。 */
+export type StageBackdrop = 'neutral' | 'interior' | 'exterior' | 'shore' | 'industrial' | 'archive' | 'void'
+export type StageLighting = 'natural' | 'warm' | 'cool' | 'night' | 'alert' | 'blackout' | 'spotlight'
+export type StageCamera = 'wide' | 'medium' | 'close' | 'push'
+export type StagePosition = 'left' | 'center' | 'right'
+export type StagePose = 'neutral' | 'open' | 'guarded' | 'tense' | 'afraid' | 'angry' | 'sad' | 'shadow'
+export type StageEntrance = 'none' | 'fade' | 'slide' | 'rise'
+
+export interface StageActorCue {
+  /** 必须引用 story.characters 中的角色。 */
+  characterId: string
+  position: StagePosition
+  pose?: StagePose
+  /** 同一舞台最多一个焦点角色。 */
+  focus?: boolean
+  /** 本节点渲染时的一次性短入场；减弱动态模式下自动关闭。 */
+  entrance?: StageEntrance
+}
+
+/**
+ * 节点舞台差异 cue。对象会沿 history 持续并与此前 cue 合并；actors 数组整体替换。
+ * `stage: "clear"` 显式撤下舞台。这样连续对白只需声明变化项。
+ */
+export interface StageCue {
+  backdrop?: StageBackdrop
+  lighting?: StageLighting
+  camera?: StageCamera
+  actors?: StageActorCue[]
+}
+
 export interface StoryNode {
   id: string
   /** 当前场景的一句话目标，帮助玩家理解下一步。 */
@@ -350,6 +380,8 @@ export interface StoryNode {
   fx?: FxItem[]
   /** 仅覆盖本场景与全局 presentation 不同的项；不要在每个节点重复全局配置。 */
   presentation?: PresentationConfig
+  /** 受控舞台调度差异，或 clear 撤下舞台。 */
+  stage?: StageCue | 'clear'
   /** 选项；空数组 = 结局节点（必须带 ending） */
   choices: Choice[]
   /** 可在本场景直接交互的谜题 id。未被任何节点绑定的旧谜题仍按全局谜题处理。 */

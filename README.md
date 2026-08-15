@@ -10,7 +10,7 @@ MCP-capable agents create, validate, test, and export **self-contained HTML text
 - **推理与演出**：内置证据、推论、谜题、人物关系、受控富文本和轻量声画效果；
 - **宿主无关**：核心是普通 Node.js + MCP 服务，未来可以通过薄适配层接入不同 Agent Harness。
 
-设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md)
+设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md) · [受控舞台调度](docs/stage-direction.md)
 
 ## 安装
 
@@ -185,6 +185,7 @@ interface StoryNode {
   ending?: EndingMeta             // { id, title, kind: 'good'|'bad'|'true'|'hidden' }
   onEnter?: Effects               // 进入本节点时生效
   soundscape?: SoundscapeSpec | 'silence' // 持续声景切换点；未声明则沿用
+  stage?: StageCue | 'clear'       // 受控舞台；未声明沿用，clear 撤台
   tags?: string[]                 // 仅供 AI/作者管理，不影响游戏
   note?: string                   // 设计备注，不进入游戏
 }
@@ -258,6 +259,26 @@ interface Condition {
   `speed` 频率倍率范围 `0.25..4`（2=快一倍，0.5=慢一倍），默认 1（即原版参数）；越界值在写入时拒绝；
 - 例如「不稳定的灯」：`"fx": [{ "name": "unstable", "intensity": 0.6, "speed": 1 }]`（大部分时间正常，随机 2-5 秒触发一次连闪两三下，再安静一阵）；
 - 尊重系统「减弱动态效果」设置。
+
+### 受控舞台调度
+
+关键对话、对质、惊吓或结局可用 `stage` 声明程序化布景、灯光、镜头和最多三名角色的站位。配置沿历史持续，后续节点只写变化项；`actors` 整体替换，`"stage": "clear"` 撤台。
+
+```jsonc
+{
+  "stage": {
+    "backdrop": "archive",
+    "lighting": "spotlight",
+    "camera": "push",
+    "actors": [
+      { "characterId": "witness", "position": "left", "pose": "afraid" },
+      { "characterId": "suspect", "position": "right", "pose": "shadow", "focus": true, "entrance": "fade" }
+    ]
+  }
+}
+```
+
+布景：`neutral/interior/exterior/shore/industrial/archive/void`；灯光：`natural/warm/cool/night/alert/blackout/spotlight`；镜头：`wide/medium/close/push`。`push` 和 `entrance` 只播放一次，减弱动态模式自动关闭动画。完整契约和 token 使用建议见 [`docs/stage-direction.md`](docs/stage-direction.md)。
 
 ### 持续声景
 

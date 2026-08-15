@@ -93,7 +93,8 @@ description: 用 TaleSpindle 的 MCP 工具制作 HTML 互动叙事游戏。当�
     }
   ],
   "ending": { "id": "e_1", "title": "结局标题", "kind": "good" }, // 结局节点：choices 为空且必带
-  "onEnter": { "set": { "flag": true } }                        // 可选：进入节点生效
+  "onEnter": { "set": { "flag": true } },                       // 可选：进入节点生效
+  "stage": { "lighting": "spotlight", "camera": "close" }    // 可选：舞台差异 cue；或 "clear"
 }
 ```
 
@@ -104,6 +105,7 @@ description: 用 TaleSpindle 的 MCP 工具制作 HTML 互动叙事游戏。当�
 - **条件** `Condition`：`op: eq|ne|gt|gte|lt|lte|exists|has|not_has`，可组合 `and` / `or` / `not`；
   `has`/`not_has` 对普通 `var` 检查道具；对 `#visited` / `#docs` / `#evidence` / `#deduction` / `#violated` / `#memory` / `#secret` / `#puzzle` 等集合型特殊变量检查 `value` id，并兼容 `eq`/`ne`；`#steps` / `#day` 使用数值比较，`#ending` 使用 `eq`/`ne`；
 - **音效/动画**：节点 `sfx` 是严格枚举（click/page/heartbeat/drone/achievement/shock/ending_good/ending_bad/ending_true/ending_hidden）；`fx` 支持 shake/flicker/glitch/pulse/**unstable**，参数 `{name, intensity?, speed?}` 中强度范围 `0.1..2`、速度范围 `0.25..4`；unstable=随机间隔连闪爆发。选项/成就/线索/结局已有自动音效，不要在节点重复手动声明系统反馈；右上角 🔊 可静音；
+- **舞台调度**：只在关键对话、对质、惊吓和结局用节点 `stage` 设置受控 `backdrop` / `lighting` / `camera` / `actors`。舞台沿历史持续，后续只写变化项；`actors` 整体替换，`stage: "clear"` 撤台，`push` / `entrance` 只播放一次。不要逐节点复制完整 cue，也不要用舞台承载唯一关键信息。使用前读取仓库 `docs/stage-direction.md`；
 - **持续声景**：`story_set_meta` 的 `soundscape` 设置初始环境声，节点 `soundscape` 只写变化点；未声明节点沿用最近声景，`silence` 显式淡出。名称限 rain/wind/storm/waves/broadcast/electric/ventilation/engine/void，强度限 subtle/medium/strong。不要把持续环境误写成逐节点 `sfx: drone`，也不要在每个节点重复同一声景；
 - **世界状态**：需要表/里世界或昼夜/警报差异时，在一次 `story_set_meta` 中定义紧凑的 `world` / `phase` 状态轴；状态可覆盖 `theme`、`presentation`、`soundscape`。用 `effects.world` / `effects.phase` 切换，用条件变量 `#world` / `#phase` 改变可见行动。只在状态级写外观差异，不要逐节点复制，也不要把关键选项藏进 CSS；详见仓库 `docs/world-state.md`；
 - **好感度**：普通数值变量（`add`/`set` 维护），`story_set_meta { hud: [{ var: "好感度", label: "好感度", max: 100 }] }` 显示进度条；HUD 支持 `var: "#day"` 显示天数；

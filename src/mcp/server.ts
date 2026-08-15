@@ -68,7 +68,7 @@ server.tool(
 
 server.tool(
   'story_upsert_node',
-  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, sfx?, soundscape?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。choice 可带短 response，点击后显示在目标正文前，适合不同选项汇入同一节点时承接玩家行动。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。soundscape 是受控持续声景对象或 silence，只在声音变化处声明。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
+  '创建或覆盖一个节点（按 node.id）。node 为完整节点对象：{id, objective?: 当前目标, text, blocks?, sfx?, soundscape?, stage?, choices[], puzzles?: 谜题id[], ending?, onEnter?, tags?, note?}。choice 可带短 response，点击后显示在目标正文前，适合不同选项汇入同一节点时承接玩家行动。text 始终必填，即使提供 blocks；节点进入效果只能写 onEnter，节点顶层没有 effects。soundscape 是受控持续声景对象或 silence，只在声音变化处声明。stage 是受控舞台差异 cue 或 clear，未声明会沿用，不要逐节点复制完整配置。未知字段会被拒绝。调查中心、谜题现场和结案阶段应写清 objective；新谜题应通过 puzzles 放进具体场景，成为正文下方的主要行动。写入后自动返回校验结果。',
   { title: z.string(), node: StrictStoryNodeSchema },
   wrap('story_upsert_node', (args) => handlers.upsertNode(args)),
 )

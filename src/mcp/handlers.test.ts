@@ -135,6 +135,24 @@ describe('story_upsert_node / delete_node', () => {
         ...base, soundscape: { name: 'rain', intensity: 'overwhelming' },
       } as unknown as StoryNode,
     })).rejects.toThrow(/intensity|overwhelming/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, stage: { backdrop: 'custom_image', actors: [] },
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/backdrop|custom_image/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base,
+        stage: {
+          actors: [
+            { characterId: 'a', position: 'left' },
+            { characterId: 'b', position: 'center' },
+            { characterId: 'c', position: 'right' },
+            { characterId: 'd', position: 'left' },
+          ],
+        },
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/actors|too_big|3/)
   })
 
   it('写入前拒绝未知富文本样式与任意 HTML 字段', async () => {

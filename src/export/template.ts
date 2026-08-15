@@ -298,6 +298,60 @@ body {
 .shell-cinematic.title-screen { align-items: flex-start; justify-content: flex-end; text-align: left; padding: clamp(2rem, 7vw, 7rem); }
 .shell-cinematic.title-screen .title-main { font-size: clamp(3rem, 10vw, 7rem); }
 
+/* 受控叙事舞台：程序化布景、三站位角色与短促 cue，不依赖外部素材。 */
+.stage-scene {
+  position: relative; isolation: isolate; overflow: hidden;
+  width: 100%; min-height: clamp(210px, 34vh, 390px);
+  margin: 1rem auto; border: 1px solid var(--border); border-radius: 6px;
+  background: color-mix(in srgb, var(--card) 75%, var(--bg));
+  box-shadow: inset 0 -60px 90px color-mix(in srgb, var(--bg) 72%, transparent);
+}
+.shell-cinematic .stage-scene { width: min(1100px, 100%); min-height: clamp(260px, 45vh, 520px); margin-bottom: .5rem; }
+.stage-set { position: absolute; inset: 0; z-index: -2; transform-origin: center 65%; }
+.stage-backdrop-neutral .stage-set { background: radial-gradient(circle at 50% 75%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 48%); }
+.stage-backdrop-interior .stage-set { background: linear-gradient(90deg, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px) 0 0/25% 100%, linear-gradient(180deg, var(--card), var(--bg)); }
+.stage-backdrop-exterior .stage-set { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, var(--bg)) 0 62%, color-mix(in srgb, var(--text-dim) 18%, var(--bg)) 62%); }
+.stage-backdrop-shore .stage-set { background: radial-gradient(ellipse at 70% 18%, color-mix(in srgb, var(--gold) 40%, transparent), transparent 13%), repeating-radial-gradient(ellipse at 50% 120%, color-mix(in srgb, var(--accent) 22%, transparent) 0 8px, transparent 10px 24px), linear-gradient(var(--bg), color-mix(in srgb, var(--accent) 12%, var(--bg))); }
+.stage-backdrop-industrial .stage-set { background: repeating-linear-gradient(90deg, transparent 0 48px, color-mix(in srgb, var(--text-dim) 17%, transparent) 49px 52px), linear-gradient(160deg, var(--card), var(--bg)); }
+.stage-backdrop-archive .stage-set { background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--gold) 8%, var(--card)) 0 18%, var(--border) 18.5% 19%, transparent 19.5% 25%), linear-gradient(var(--card), var(--bg)); }
+.stage-backdrop-void .stage-set { background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--purple) 18%, transparent), transparent 35%), #020206; }
+.stage-scene::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; mix-blend-mode: screen; }
+.stage-light-warm::after { background: radial-gradient(circle at 50% 20%, color-mix(in srgb, #ffb45e 30%, transparent), transparent 55%); }
+.stage-light-cool::after { background: linear-gradient(color-mix(in srgb, #6ca8ff 18%, transparent), transparent 65%); }
+.stage-light-night::after { background: color-mix(in srgb, #05132c 38%, transparent); mix-blend-mode: multiply; }
+.stage-light-alert::after { background: linear-gradient(115deg, color-mix(in srgb, var(--danger) 24%, transparent), transparent 48%); }
+.stage-light-blackout::after { background: rgba(0,0,0,.72); mix-blend-mode: multiply; }
+.stage-light-spotlight::after { background: radial-gradient(ellipse at 50% 45%, transparent 0 20%, rgba(0,0,0,.68) 65%); mix-blend-mode: normal; }
+.stage-camera-wide .stage-set { transform: scale(.96); }
+.stage-camera-close .stage-set { transform: scale(1.12); }
+.stage-camera-push .stage-set { animation: stage-camera-push 7s ease-out both; }
+@keyframes stage-camera-push { from { transform: scale(1); } to { transform: scale(1.09); } }
+.stage-actors { position: absolute; inset: 0; z-index: 2; }
+.stage-actor { position: absolute; bottom: 0; width: min(28%, 220px); margin: 0; text-align: center; opacity: .72; transform-origin: 50% 100%; transition: opacity .25s ease, filter .25s ease, transform .25s ease; }
+.stage-pos-left { left: 5%; }
+.stage-pos-center { left: 50%; transform: translateX(-50%); }
+.stage-pos-right { right: 5%; }
+.stage-actor-figure { width: 100%; aspect-ratio: .68; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 48% 48% 10% 10%; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, var(--card)), color-mix(in srgb, var(--bg) 88%, black)); box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 12%, transparent); }
+.stage-actor-figure span { font-size: clamp(2rem, 7vw, 5rem); color: color-mix(in srgb, var(--text) 42%, transparent); }
+.stage-actor figcaption { display: inline-block; transform: translateY(-.8rem); padding: .25rem .8rem; border: 1px solid var(--border); background: var(--card); color: var(--text-dim); font-size: .78rem; letter-spacing: .18em; }
+.stage-focus { opacity: 1; filter: none; z-index: 2; }
+.stage-pos-left.stage-focus, .stage-pos-right.stage-focus { transform: scale(1.05); }
+.stage-pos-center.stage-focus { transform: translateX(-50%) scale(1.05); }
+.stage-pose-open .stage-actor-figure { border-radius: 52% 52% 18% 18%; }
+.stage-pose-guarded .stage-actor-figure, .stage-pose-tense .stage-actor-figure { filter: contrast(1.15); }
+.stage-pose-afraid .stage-actor-figure { filter: saturate(.55) brightness(.85); }
+.stage-pose-angry .stage-actor-figure { border-color: var(--danger); box-shadow: 0 0 34px color-mix(in srgb, var(--danger) 28%, transparent); }
+.stage-pose-sad .stage-actor-figure { filter: saturate(.45); }
+.stage-pose-shadow .stage-actor-figure { filter: brightness(.25); }
+.stage-enter-fade { animation: stage-enter-fade .5s ease-out both; }
+.stage-enter-slide.stage-pos-left { animation: stage-enter-left .5s ease-out both; }
+.stage-enter-slide.stage-pos-right { animation: stage-enter-right .5s ease-out both; }
+.stage-enter-rise { animation: stage-enter-rise .5s ease-out both; }
+@keyframes stage-enter-fade { from { opacity: 0; } }
+@keyframes stage-enter-left { from { opacity: 0; translate: -24px 0; } }
+@keyframes stage-enter-right { from { opacity: 0; translate: 24px 0; } }
+@keyframes stage-enter-rise { from { opacity: 0; translate: 0 22px; } }
+
 .card-ending { border-color: var(--border-glow); }
 .ending-badge {
   font-family: 'JetBrains Mono', Consolas, monospace;
@@ -504,7 +558,8 @@ body {
   50% { transform: scale(var(--fx-pulse-scale, 1.02)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst, .segment-revealed, .state-transition { animation: none; }
+  .fx-shake, .fx-flicker, .fx-glitch, .fx-pulse, .fx-burst, .segment-revealed, .state-transition,
+  .stage-camera-push .stage-set, .stage-enter-fade, .stage-enter-slide, .stage-enter-rise { animation: none; }
 }
 
 /* 成就 */

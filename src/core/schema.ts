@@ -19,6 +19,7 @@ import type {
   StoryDocument,
   StoryMeta,
   StoryNode,
+  StageCue,
   TextSegment,
   TextBlock,
   ThemeConfig,
@@ -193,6 +194,19 @@ export const FxSpecSchema = z.object({
 
 export const FxItemSchema: z.ZodType<FxItem> = z.union([z.enum(FX_NAMES), FxSpecSchema])
 
+export const StageCueSchema: z.ZodType<StageCue> = z.object({
+  backdrop: z.enum(['neutral', 'interior', 'exterior', 'shore', 'industrial', 'archive', 'void']).optional(),
+  lighting: z.enum(['natural', 'warm', 'cool', 'night', 'alert', 'blackout', 'spotlight']).optional(),
+  camera: z.enum(['wide', 'medium', 'close', 'push']).optional(),
+  actors: z.array(z.object({
+    characterId: z.string().min(1),
+    position: z.enum(['left', 'center', 'right']),
+    pose: z.enum(['neutral', 'open', 'guarded', 'tense', 'afraid', 'angry', 'sad', 'shadow']).optional(),
+    focus: z.boolean().optional(),
+    entrance: z.enum(['none', 'fade', 'slide', 'rise']).optional(),
+  }).strict()).max(3).optional(),
+}).strict().refine((cue) => Object.keys(cue).length > 0, 'stage cue 至少包含一个变化字段')
+
 export const SoundscapeSpecSchema = z.object({
   name: z.enum(SOUNDSCAPE_NAMES),
   intensity: z.enum(['subtle', 'medium', 'strong']).optional(),
@@ -256,6 +270,7 @@ export const StoryNodeSchema = z.object({
   soundscape: z.union([SoundscapeSpecSchema, z.literal('silence')]).optional(),
   fx: z.array(FxItemSchema).optional(),
   presentation: PresentationConfigSchema.optional(),
+  stage: z.union([StageCueSchema, z.literal('clear')]).optional(),
   choices: z.array(ChoiceSchema),
   puzzles: z.array(z.string()).optional(),
   ending: EndingMetaSchema.optional(),
