@@ -10,7 +10,7 @@ MCP-capable agents create, validate, test, and export **self-contained HTML text
 - **推理与演出**：内置证据、推论、谜题、人物关系、受控富文本和轻量声画效果；
 - **宿主无关**：核心是普通 Node.js + MCP 服务，未来可以通过薄适配层接入不同 Agent Harness。
 
-设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md) · [受控舞台调度](docs/stage-direction.md)
+设计与创作参考：[叙事文本与节点连续性](docs/narrative-quality.md) · [世界/阶段状态](docs/world-state.md) · [受控舞台调度](docs/stage-direction.md) · [拟态网页外壳](docs/web-shells.md)
 
 ## 安装
 
@@ -141,7 +141,7 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 | `story_walk` | 结局见证与覆盖诊断；支持 `compact:true`，最终重放前再取完整动作 |
 | `story_graph` | 生成 mermaid 分支图（审查结构用） |
 | `story_export` | 导出单文件 HTML（校验不通过时拒绝） |
-| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD 统计条** / **初始持续声景** |
+| `story_set_meta` | 更新副标题 / 作者 / **主题** / **HUD** / **初始声景** / **拟态网站身份** |
 | `story_set_presentation` | 设置 `novel/dossier/chat/cinematic` 外壳与字体、密度、形状、选项风格 |
 | `story_list` | 列出所有项目 |
 | `story_delete_project` | 删除整个项目 |
@@ -172,7 +172,7 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 
 ```ts
 interface Story {
-  meta: { title: string; subtitle?: string; version?: string; author?: string }
+  meta: { title: string; subtitle?: string; version?: string; author?: string; site?: SiteConfig }
   start: string                                // 起始节点 id
   nodes: Record<string, StoryNode>             // 节点表
   endings: Record<string, EndingMeta>          // 结局表（upsert 节点时自动登记）
@@ -186,6 +186,7 @@ interface StoryNode {
   onEnter?: Effects               // 进入本节点时生效
   soundscape?: SoundscapeSpec | 'silence' // 持续声景切换点；未声明则沿用
   stage?: StageCue | 'clear'       // 受控舞台；未声明沿用，clear 撤台
+  page?: WebPageMeta               // 拟态网页页面语义；导航仍使用 choices
   tags?: string[]                 // 仅供 AI/作者管理，不影响游戏
   note?: string                   // 设计备注，不进入游戏
 }
@@ -262,7 +263,7 @@ interface Condition {
 
 ### 受控舞台调度
 
-关键对话、对质、惊吓或结局可用 `stage` 声明程序化布景、灯光、镜头和最多三名角色的站位。配置沿历史持续，后续节点只写变化项；`actors` 整体替换，`"stage": "clear"` 撤台。
+只有特殊剧情表现与过场动画——如关键对质、告白、惊吓、真相重演或结局定格——使用 `stage` 声明程序化布景、灯光、镜头和最多三名角色的站位。普通调查和常规对白维持文字界面。配置沿历史持续，后续节点只写变化项；`actors` 整体替换，`"stage": "clear"` 撤台。
 
 ```jsonc
 {
@@ -324,6 +325,30 @@ interface Condition {
 用节点 `onEnter` 或选项 `effects` 中的 `world: "other"`、`phase: "night"` 切换。
 状态会进入存档和 walk 状态键；恢复存档时主题、排版、声景与可见选项同步恢复。完整契约见
 [`docs/world-state.md`](docs/world-state.md)。
+
+### 拟态新闻网页
+
+用一次 `story_set_meta` 设置 `site`，即可让标题屏和游戏页面表现为离线新闻站；节点只用 `page` 补充页面标题等差异。所有报道链接仍是普通 `choices`，所以条件、效果、walk、存档和 DOM 重放继续使用同一剧情图。
+
+```jsonc
+{
+  "site": { "kind": "news", "name": "汐见晚报", "tagline": "潮水退去后，事实仍在。", "locale": "汐见町" }
+}
+```
+
+```jsonc
+{
+  "page": {
+    "layout": "frontpage",
+    "section": "本地",
+    "headline": "旧灯塔将在今日永久关闭",
+    "byline": "闻舟",
+    "timestamp": "8 月 31 日 18:40"
+  }
+}
+```
+
+布局支持 `frontpage/article/bulletin`。不要生成真实登录页、表单、独立 URL、远程请求或 JavaScript 路由；详细契约见 [`docs/web-shells.md`](docs/web-shells.md)。
 
 ## 受控富文本
 

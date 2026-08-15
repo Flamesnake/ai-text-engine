@@ -153,6 +153,11 @@ describe('story_upsert_node / delete_node', () => {
         },
       } as unknown as StoryNode,
     })).rejects.toThrow(/actors|too_big|3/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
+        ...base, page: { layout: 'video_portal', headline: '不安全页面' },
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/layout|video_portal/)
   })
 
   it('写入前拒绝未知富文本样式与任意 HTML 字段', async () => {
@@ -343,6 +348,7 @@ describe('story_list / set_meta / delete_project', () => {
         initial: 'day',
         states: { day: {}, night: { presentation: { typography: 'mono' } } },
       },
+      site: { kind: 'news', name: '汐见晚报', tagline: '只报道潮水留下的事实。' },
     })
     const list = (await handlers.listProjects()) as { projects: { title: string }[] }
     expect(list.projects.some((p) => p.title === '测试游戏')).toBe(true)
@@ -351,6 +357,7 @@ describe('story_list / set_meta / delete_project', () => {
     expect(story.meta.soundscape).toEqual({ name: 'rain', intensity: 'subtle' })
     expect(story.meta.world?.initial).toBe('surface')
     expect(story.meta.phase?.states.night.presentation?.typography).toBe('mono')
+    expect(story.meta.site?.name).toBe('汐见晚报')
   })
 
   it('用一次短配置更新作品视觉表达', async () => {

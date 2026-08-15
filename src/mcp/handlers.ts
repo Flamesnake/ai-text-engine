@@ -1,5 +1,5 @@
 import type {
-  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, SoundscapeSpec, StateAxisConfig, StoryDocument, StoryNode, ThemeConfig,
+  Achievement, Character, Deduction, Evidence, HudStat, PresentationConfig, Puzzle, SiteConfig, SoundscapeSpec, StateAxisConfig, StoryDocument, StoryNode, ThemeConfig,
 } from '../core/types.js'
 import { validate, validateExperience } from '../core/validate.js'
 import { evaluateStory } from '../core/evaluate.js'
@@ -246,6 +246,7 @@ export async function setMeta(args: {
   theme?: string | ThemeConfig
   hud?: HudStat[]
   presentation?: PresentationConfig
+  site?: SiteConfig
   soundscape?: SoundscapeSpec
   world?: StateAxisConfig
   phase?: StateAxisConfig
@@ -256,6 +257,7 @@ export async function setMeta(args: {
   if (args.theme !== undefined) story.meta.theme = args.theme
   if (args.hud !== undefined) story.meta.hud = args.hud
   if (args.presentation !== undefined) story.meta.presentation = args.presentation
+  if (args.site !== undefined) story.meta.site = args.site
   if (args.soundscape !== undefined) story.meta.soundscape = args.soundscape
   if (args.world !== undefined) story.meta.world = args.world
   if (args.phase !== undefined) story.meta.phase = args.phase
@@ -679,7 +681,7 @@ export const tools = {
   story_walk: (args: WalkStoryArgs) => walkStory(args),
   story_graph: (args: { title: string }) => graph(args.title),
   story_export: (args: ExportArgs) => exportStory(args),
-  story_set_meta: (args: { title: string; subtitle?: string; author?: string; soundscape?: SoundscapeSpec; world?: StateAxisConfig; phase?: StateAxisConfig }) => setMeta(args),
+  story_set_meta: (args: { title: string; subtitle?: string; author?: string; site?: SiteConfig; soundscape?: SoundscapeSpec; world?: StateAxisConfig; phase?: StateAxisConfig }) => setMeta(args),
   story_set_presentation: (args: { title: string; presentation: PresentationConfig }) => setPresentation(args),
   story_list: () => listProjects(),
   story_delete_project: (args: { title: string }) => deleteProject(args.title),

@@ -20,9 +20,11 @@ import type {
   StoryMeta,
   StoryNode,
   StageCue,
+  SiteConfig,
   TextSegment,
   TextBlock,
   ThemeConfig,
+  WebPageMeta,
   VarValue,
   Vars,
 } from './types.js'
@@ -68,6 +70,21 @@ export const PresentationConfigSchema: z.ZodType<PresentationConfig> = z.object(
   shape: z.enum(['sharp', 'soft', 'round']).optional(),
   choiceStyle: z.enum(['buttons', 'list', 'dialogue', 'commands']).optional(),
 }).strict()
+
+export const SiteConfigSchema: z.ZodType<SiteConfig> = z.object({
+  kind: z.literal('news'),
+  name: z.string().min(1).max(80),
+  tagline: z.string().max(120).optional(),
+  locale: z.string().max(40).optional(),
+}).strict()
+
+export const WebPageMetaSchema: z.ZodType<WebPageMeta> = z.object({
+  layout: z.enum(['frontpage', 'article', 'bulletin']).optional(),
+  section: z.string().max(40).optional(),
+  headline: z.string().max(160).optional(),
+  byline: z.string().max(60).optional(),
+  timestamp: z.string().max(60).optional(),
+}).strict().refine((page) => Object.keys(page).length > 0, 'page 至少包含一个页面字段')
 
 export const HudStatSchema: z.ZodType<HudStat> = z.object({
   var: z.string(),
@@ -271,6 +288,7 @@ export const StoryNodeSchema = z.object({
   fx: z.array(FxItemSchema).optional(),
   presentation: PresentationConfigSchema.optional(),
   stage: z.union([StageCueSchema, z.literal('clear')]).optional(),
+  page: WebPageMetaSchema.optional(),
   choices: z.array(ChoiceSchema),
   puzzles: z.array(z.string()).optional(),
   ending: EndingMetaSchema.optional(),
@@ -300,6 +318,7 @@ export const StoryMetaSchema: z.ZodType<StoryMeta> = z.object({
   author: z.string().optional(),
   theme: z.union([z.string(), ThemeConfigSchema]).optional(),
   presentation: PresentationConfigSchema.optional(),
+  site: SiteConfigSchema.optional(),
   soundscape: SoundscapeSpecSchema.optional(),
   world: StateAxisConfigSchema.optional(),
   phase: StateAxisConfigSchema.optional(),

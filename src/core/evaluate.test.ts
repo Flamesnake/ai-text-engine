@@ -75,6 +75,35 @@ describe('evaluateStory 作品评估', () => {
     expect(report.findings).toContainEqual(expect.objectContaining({ code: 'REPEATED_STAGE_CUE' }))
   })
 
+  it('将大面积舞台化报告为特殊剧情演出滥用', () => {
+    const story = makeStory()
+    for (const node of Object.values(story.nodes).slice(0, 5)) node.stage = { camera: 'close' }
+    const report = evaluateStory(story)
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'STAGE_OVERUSE', severity: 'warning',
+    }))
+  })
+
+  it('统计拟态网站页面并提示空站点外壳', () => {
+    const story = makeStory()
+    story.meta.site = { kind: 'news', name: '汐见晚报' }
+    let report = evaluateStory(story)
+    expect(report.presentation.site).toEqual({
+      kind: 'news', pageNodes: 0, layoutUsage: [], pagesWithHeadline: 0,
+    })
+    expect(report.findings).toContainEqual(expect.objectContaining({ code: 'SITE_SHELL_UNUSED' }))
+
+    story.nodes.start.page = { layout: 'frontpage', headline: '潮位异常' }
+    story.nodes.armed.page = { section: '本地' }
+    report = evaluateStory(story)
+    expect(report.presentation.site).toEqual({
+      kind: 'news', pageNodes: 2,
+      layoutUsage: [{ name: 'article', count: 1 }, { name: 'frontpage', count: 1 }],
+      pagesWithHeadline: 1,
+    })
+    expect(report.findings.map((finding) => finding.code)).not.toContain('SITE_SHELL_UNUSED')
+  })
+
   it('统计富文本片段、条件揭示与样式使用', () => {
     const story = makeStory()
     story.nodes.start.blocks = [{

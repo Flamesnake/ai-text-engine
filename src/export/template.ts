@@ -298,6 +298,43 @@ body {
 .shell-cinematic.title-screen { align-items: flex-start; justify-content: flex-end; text-align: left; padding: clamp(2rem, 7vw, 7rem); }
 .shell-cinematic.title-screen .title-main { font-size: clamp(3rem, 10vw, 7rem); }
 
+/* news：结构化拟态新闻站。真实导航仍由 choice 按钮驱动，不建立第二套路由。 */
+.site-news.game-screen { max-width: 1120px; padding-top: 1.25rem; justify-content: flex-start; }
+.site-news.title-screen {
+  align-items: flex-start; justify-content: flex-start; text-align: left;
+  max-width: 1120px; margin: auto; padding-top: clamp(2rem, 8vh, 7rem);
+}
+.site-news.title-screen::before { content: ''; width: 100%; border-top: 8px solid var(--text); }
+.site-news.title-screen .title-badge { margin-top: 1rem; }
+.site-news.title-screen .title-main {
+  width: 100%; margin-block: .45rem; padding-block: .45rem;
+  border-block: 1px solid var(--text); font-family: Georgia, 'Noto Serif SC', serif;
+  font-size: clamp(3rem, 9vw, 7rem); line-height: .98; letter-spacing: -.045em;
+}
+.site-news.title-screen .title-sub { max-width: 52rem; }
+.site-news.title-screen .title-actions { align-items: flex-start; }
+.site-news .site-header { position: static; inset: auto; display: block; border-top: 8px solid var(--text); color: var(--text); }
+.site-utility { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px solid var(--border); font-size: .72rem; letter-spacing: .12em; color: var(--text-dim); }
+.site-masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: .75rem 0; border-bottom: 3px double var(--text); }
+.site-name { font-family: Georgia, 'Noto Serif SC', serif; font-weight: 800; font-size: clamp(2rem, 6vw, 4.8rem); line-height: 1; letter-spacing: -.045em; }
+.site-tagline { max-width: 24rem; color: var(--text-dim); font-size: .82rem; text-align: right; }
+.site-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; padding-top: .45rem; }
+.site-tools .btn { width: auto; min-width: 0; padding: .35rem .6rem; border: 0; background: transparent; box-shadow: none; font-size: .72rem; }
+.site-news .card { width: 100%; margin: 1rem 0 0; padding: 2rem 2.2rem 2.4rem; border: 0; border-radius: 0; box-shadow: none; background: color-mix(in srgb, var(--card) 88%, transparent); }
+.web-page-header { margin-bottom: 1.4rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.web-page-section { display: inline-block; margin-bottom: .5rem; color: var(--accent); font-weight: 700; font-size: .75rem; letter-spacing: .13em; text-transform: uppercase; }
+.web-page-headline { margin: 0; max-width: 19em; font-family: Georgia, 'Noto Serif SC', serif; font-size: clamp(2rem, 6vw, 4.4rem); line-height: 1.08; letter-spacing: -.035em; }
+.web-page-meta { margin: .75rem 0 0; color: var(--text-dim); font-size: .78rem; }
+.site-news .card-text, .site-news .block-para { width: auto; max-width: 47rem; padding: 0; border: 0; border-radius: 0; background: transparent; font-family: Georgia, 'Noto Serif SC', serif; font-size: 1.04rem; line-height: 1.95; }
+.site-news .card-actions { border-top: 3px double var(--text); padding-top: .8rem; }
+.site-news .choice-btn { width: 100%; align-self: auto; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding-inline: 0; background: transparent; box-shadow: none; font-weight: 650; }
+.site-news .choice-btn::after { content: ' →'; color: var(--accent); }
+.site-news[data-page-layout="frontpage"] .card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.2rem; }
+.site-news[data-page-layout="frontpage"] .web-page-headline { max-width: 15em; }
+.site-news[data-page-layout="bulletin"] .card { border-top: 6px solid var(--danger); }
+.site-news[data-page-layout="bulletin"] .web-page-section { color: var(--danger); }
+.site-news[data-page-layout="bulletin"] .web-page-headline { font-family: 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif; font-size: clamp(2rem, 5vw, 3.6rem); }
+
 /* 受控叙事舞台：程序化布景、三站位角色与短促 cue，不依赖外部素材。 */
 .stage-scene {
   position: relative; isolation: isolate; overflow: hidden;
@@ -616,6 +653,9 @@ body {
   .shell-cinematic.game-screen { padding: 1rem; }
   .shell-cinematic .game-header { position: static; }
   .shell-cinematic .card-actions { grid-template-columns: 1fr; }
+  .site-masthead { align-items: flex-start; flex-direction: column; }
+  .site-tagline { text-align: left; }
+  .site-news[data-page-layout="frontpage"] .card-actions { grid-template-columns: 1fr; }
   .density-spacious .card { padding: 1.8rem 1.25rem 2rem; }
   .choice-dialogue .choice-btn, .shell-chat .card-text, .shell-chat .block-para { width: 94%; }
 }

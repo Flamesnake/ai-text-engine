@@ -221,6 +221,39 @@ describe('mountTextAdventure 运行时集成', () => {
     },
   )
 
+  it('新闻站外壳使用结构化站点与页面语义，导航仍复用剧情 choice', () => {
+    const story = makeStory()
+    story.meta.site = {
+      kind: 'news', name: '汐见晚报', tagline: '潮水退去后，事实仍在。', locale: '汐见町',
+    }
+    story.nodes.start.page = {
+      layout: 'frontpage', section: '本地', headline: '旧灯塔将在今日永久关闭',
+      byline: '闻舟', timestamp: '8 月 31 日 18:40',
+    }
+    story.nodes.armed.page = { layout: 'article', section: '追踪', headline: '工作人员发现未登记的值班记录' }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:news-site', storage })
+
+    expect(root.querySelector('.title-main')?.textContent).toBe('汐见晚报')
+    expect(root.querySelector('[data-action="start"]')?.textContent).toBe('浏览最新报道')
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const main = root.querySelector<HTMLElement>('.game-screen')!
+    expect(main.dataset).toMatchObject({ siteKind: 'news', pageLayout: 'frontpage' })
+    expect(root.querySelector('.site-name')?.textContent).toBe('汐见晚报')
+    expect(root.querySelector('.web-page-headline')?.textContent).toBe('旧灯塔将在今日永久关闭')
+    expect(root.querySelector('.web-page-meta')?.textContent).toContain('记者 闻舟')
+    expect(root.querySelector('nav[aria-label="调查工具"]')).not.toBeNull()
+    expect([...root.querySelectorAll<HTMLButtonElement>('[data-choice]')].map((item) => item.textContent))
+      .toEqual(['拿剑', '空手'])
+
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    expect(root.querySelector<HTMLElement>('.game-screen')?.dataset.pageLayout).toBe('article')
+    expect(root.querySelector('.web-page-headline')?.textContent).toContain('值班记录')
+  })
+
   it('完整游玩流程：标题屏 → 开始 → 拿剑 → 战斗 → 好结局，且存档写入', () => {
     const story = makeStory()
     story.nodes.fight.stage = {

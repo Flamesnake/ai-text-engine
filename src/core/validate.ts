@@ -75,6 +75,9 @@ export function validate(story: Story): string[] {
         positions.add(actor.position)
       }
     }
+    if (node.page && !story.meta.site) {
+      problems.push(`节点 "${node.id}" 声明了 page，但 meta.site 未配置拟态网站`)
+    }
   }
 
   // 文档表：条目完整 + gainDocs 引用存在
@@ -383,6 +386,17 @@ function collectConditionVars(cond: Condition): string[] {
  */
 export function validateExperience(story: Story): string[] {
   const warnings: string[] = []
+  const nodeCount = Object.keys(story.nodes).length
+  const stageCueNodes = Object.values(story.nodes).filter((node) => node.stage && node.stage !== 'clear')
+  if (stageCueNodes.length >= 5 && stageCueNodes.length / Math.max(1, nodeCount) > 0.3) {
+    warnings.push(
+      `${stageCueNodes.length}/${nodeCount} 个节点声明了舞台 cue；stage 只用于特殊剧情与过场动画，` +
+      '普通调查和常规对白应撤台并使用文字界面',
+    )
+  }
+  if (story.meta.site && !Object.values(story.nodes).some((node) => node.page)) {
+    warnings.push('meta.site 已启用拟态网站，但没有节点声明 page 页面语义；至少为入口与关键页面设置 layout/headline')
+  }
   for (const node of Object.values(story.nodes)) {
     if (node.choices.length >= 4 && !node.objective?.trim()) {
       warnings.push(`节点 "${node.id}" 有 ${node.choices.length} 个可选行动但没有 objective，玩家可能不清楚当前目标`)
