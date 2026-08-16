@@ -26,6 +26,10 @@
     "docs/narrative-quality.md",
     "docs/stage-direction.md",
     "docs/web-shells.md",
+    "docs/narrative-freedom.md",
+    "docs/deduction-mvp.md",
+    "docs/puzzles-mvp.md",
+    "docs/relationships-mvp.md",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -53,16 +57,18 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/build-runtime.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && node scripts/build-runtime.mjs",
     "test": "vitest run",
     "mcp": "node dist/cli.js mcp",
     "check:projects": "node scripts/verify-projects.mjs",
+    "check:corpus": "node scripts/check-corpus.mjs",
     "check:release": "node scripts/release-check.mjs",
     "check:package": "npm run build && node scripts/verify-package.mjs",
     "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/three": "^0.185.4",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.11.2",
     "typescript": "^7.0.2",
@@ -70,6 +76,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "three": "^0.185.1",
     "zod": "^4.4.3"
   }
 }

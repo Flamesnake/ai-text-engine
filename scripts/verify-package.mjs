@@ -19,7 +19,7 @@ const packResult = runNpm(
 )
 const packed = JSON.parse(packResult.stdout)[0]
 const files = packed.files.map((file) => file.path)
-const required = ['dist/cli.js', 'dist/mcp/server.js', 'dist/export/runtime.bundle.js', 'skill/SKILL.md', 'docs/world-state.md', 'README.md', 'LICENSE']
+const required = ['dist/cli.js', 'dist/mcp/server.js', 'dist/export/runtime.bundle.js', 'dist/export/runtime-lite.bundle.js', 'dist/export/template.css', 'skill/SKILL.md', 'docs/world-state.md', 'README.md', 'LICENSE']
 const forbidden = files.filter((file) =>
   file.startsWith('projects/') || file.startsWith('src/') || file.startsWith('_scratch/') ||
   file.startsWith('.codex/') || file.startsWith('.reasonix/') || file.includes('.test.'))
