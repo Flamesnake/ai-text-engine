@@ -23,3 +23,6 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      # P3-3 发布护栏：验证 npm 包产物（files 白名单 / 入口 / 预构建 runtime / template.css 等）
+      - name: Package check
+        run: npm run check:package

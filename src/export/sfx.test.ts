@@ -98,6 +98,9 @@ describe('sfx 音效模块', () => {
     expect(context?.bufferSources).toHaveLength(2)
     const originalSources = [...(context?.bufferSources ?? [])]
     const originalGainCount = context?.gains.length
+    // rain = 2 noise × (1 源 + 2 LFO 振荡器)
+    const rainOscillatorCount = context?.oscillators.length ?? 0
+    expect(rainOscillatorCount).toBe(4)
 
     // 同一规格沿用声音节点，不重新起音。
     setSoundscape({ name: 'rain', intensity: 'subtle' })
@@ -106,7 +109,11 @@ describe('sfx 音效模块', () => {
 
     setSoundscape({ name: 'storm', intensity: 'strong' })
     for (const source of originalSources) expect(source.stop).toHaveBeenCalledWith(1.25)
-    expect(context?.oscillators).toHaveLength(1)
+    // storm = noise(1 源 + 2 LFO) + osc(1 源 + 1 LFO) → 新增 4 个振荡器
+    expect(context?.oscillators.length).toBe(rainOscillatorCount + 4)
+    const lfoFrequencies = (context?.oscillators ?? [])
+      .map((oscillator) => oscillator.frequency.setValueAtTime.mock.calls[0]?.[0] as number)
+    expect(lfoFrequencies.some((f) => f >= 0.05 && f <= 0.2)).toBe(true)
 
     const stormSources = [...(context?.bufferSources.slice(2) ?? []), ...(context?.oscillators ?? [])]
     setSoundscape(null)
@@ -166,6 +173,7 @@ class FakeAudioContext {
     const source = {
       buffer: null,
       loop: false,
+      frequency: { setValueAtTime: vi.fn() },
       connect: vi.fn(), start: vi.fn(), stop: vi.fn(),
     }
     this.bufferSources.push(source)
@@ -193,6 +201,7 @@ interface FakeGainNode {
 }
 
 interface FakeSourceNode {
+  frequency: { setValueAtTime: ReturnType<typeof vi.fn> }
   connect: ReturnType<typeof vi.fn>
   start: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>

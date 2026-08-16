@@ -194,12 +194,36 @@ function createSoundscape(
   destination: AudioNode,
 ): AudioScheduledSourceNode[] {
   const sources: AudioScheduledSourceNode[] = []
+
+  /** 慢速 LFO（P3-1）：0.05–0.2Hz 让滤波/增益缓慢起伏，避免固定循环 30 秒后「听感变平」。 */
+  const attachLfo = (
+    param: AudioParam,
+    base: number,
+    depthRatio: number,
+    rate: number,
+  ): OscillatorNode => {
+    const lfo = ctx.createOscillator()
+    const lfoGain = ctx.createGain()
+    lfo.type = 'sine'
+    lfo.frequency.setValueAtTime(rate, ctx.currentTime)
+    // LFO 输出围绕 0 摆动：param = base ± base*depthRatio
+    lfoGain.gain.setValueAtTime(base * depthRatio, ctx.currentTime)
+    lfo.connect(lfoGain)
+    lfoGain.connect(param)
+    lfo.start()
+    sources.push(lfo)
+    return lfo
+  }
+
+  const lfoRate = (): number => 0.05 + Math.random() * 0.15
+
   const osc = (type: OscillatorType, frequency: number, level: number): void => {
     const source = ctx.createOscillator()
     const gain = ctx.createGain()
     source.type = type
     source.frequency.setValueAtTime(frequency, ctx.currentTime)
     gain.gain.setValueAtTime(level, ctx.currentTime)
+    attachLfo(gain.gain, level, 0.18, lfoRate())
     source.connect(gain)
     gain.connect(destination)
     source.start()
@@ -218,6 +242,8 @@ function createSoundscape(
     filter.type = filterType
     filter.frequency.setValueAtTime(frequency, ctx.currentTime)
     gain.gain.setValueAtTime(level, ctx.currentTime)
+    attachLfo(filter.frequency, frequency, 0.12, lfoRate())
+    attachLfo(gain.gain, level, 0.15, lfoRate())
     source.connect(filter)
     filter.connect(gain)
     gain.connect(destination)

@@ -55,7 +55,12 @@ export interface WalkResult {
     provenEndings: string[]
     unprovenEndings: string[]
     witnesses: EndingWitness[]
-    witnessSearch: { used: number; limitPerEnding: number }
+    witnessSearch: {
+      used: number
+      limitPerEnding: number
+      /** 见证搜索总耗时（毫秒；P3-2 观测，多结局大作品可据此判断是否值得优化为一次搜索多结局收集） */
+      durationMs: number
+    }
   }
   /** 当前确定随机模型下的全状态覆盖诊断。 */
   coverage: {
@@ -443,6 +448,8 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
   }
 
   const coverageComplete = coverageReasons.size === 0
+  // P3-2 观测：见证搜索按结局叠加预算，暂只记录耗时；遇真实性能投诉再改为一次搜索多结局收集。
+  const witnessSearchStartedAt = performance.now()
   let witnessSearchUsed = 0
   if (!targetEndingId && !coverageComplete) {
     for (const endingId of Object.keys(story.endings)) {
@@ -458,6 +465,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
       if (witness) witnesses.set(endingId, { ...witness, source: 'targeted' })
     }
   }
+  const witnessSearchDurationMs = Math.round(performance.now() - witnessSearchStartedAt)
 
   const endingMap = new Map<string, EndingReach>(Object.keys(counts)
     .map((endingId) => ({
@@ -518,7 +526,7 @@ export function walkAllEndings(story: Story, options?: WalkOptions): WalkResult 
       provenEndings,
       unprovenEndings,
       witnesses: endingWitnesses,
-      witnessSearch: { used: witnessSearchUsed, limitPerEnding: witnessMaxStates },
+      witnessSearch: { used: witnessSearchUsed, limitPerEnding: witnessMaxStates, durationMs: witnessSearchDurationMs },
     },
     coverage: {
       complete: coverageComplete,
