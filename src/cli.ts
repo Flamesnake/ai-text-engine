@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import path from 'node:path'
-import { doctor, initHome, installSkill, type SkillClient } from './cli/commands.js'
+import {
+  doctor,
+  exportProject,
+  initHome,
+  installSkill,
+  validateProject,
+  type SkillClient,
+} from './cli/commands.js'
 import { setProjectsRoot } from './mcp/projects.js'
+import { ENGINE_VERSION } from './version.js'
 
 const HELP = `talespindle <command> [options]
 
@@ -10,7 +18,9 @@ Commands:
   init [--home <dir>]            创建安全的作品数据目录
   mcp [--home <dir>]             启动 stdio MCP 服务器
   install-skill [options]        安装配套 Skill
-  version                        显示版本
+  export <title> [--out <dir>]   校验并导出单文件 HTML（薄封装 story_export）
+  validate <title> [--compact]   校验剧情完整性（薄封装 story_validate）
+  version                        显示版本（毫秒级，不跑检查）
 
 install-skill options:
   --client agents|codex|claude   默认 agents
@@ -31,9 +41,44 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0
   }
   if (command === 'version' || command === '--version' || command === '-v') {
-    const result = await doctor({ home })
-    process.stdout.write(`${result.version}\n`)
+    process.stdout.write(`${ENGINE_VERSION}\n`)
     return 0
+  }
+  if (command === 'export') {
+    const title = argv[1]
+    if (!title) throw new Error('export 需要 <title> 参数（talespindle export <title> [--out <dir>]）')
+    const result = (await exportProject({ title, outputDir: optionValue(argv, '--out') })) as {
+      ok?: boolean
+      outputPath?: string
+      sizeBytes?: number
+      message?: string
+      runtimeWarning?: string
+    }
+    if (!result.ok) {
+      process.stderr.write(`导出失败：${result.message ?? '剧情校验未通过'}\n`)
+      return 1
+    }
+    process.stdout.write(`已导出：${result.outputPath}（${result.sizeBytes} 字节）\n`)
+    if (result.runtimeWarning) process.stderr.write(`警告：${result.runtimeWarning}\n`)
+    return 0
+  }
+  if (command === 'validate') {
+    const title = argv[1]
+    if (!title) throw new Error('validate 需要 <title> 参数（talespindle validate <title> [--compact]）')
+    const result = (await validateProject({ title, compact: argv.includes('--compact') })) as {
+      title: string
+      validatePass?: boolean
+      problems?: unknown[]
+      nodeCount?: number
+      endingCount?: number
+    }
+    if (result.validatePass) {
+      process.stdout.write(`✓ ${result.title} 校验通过（${result.nodeCount} 节点 / ${result.endingCount} 结局）\n`)
+      return 0
+    }
+    process.stderr.write(`✗ ${result.title} 校验未通过：${result.problems?.length ?? 0} 处问题\n`)
+    process.stderr.write(`${JSON.stringify(result.problems, null, 2)}\n`)
+    return 1
   }
   if (command === 'doctor') {
     const result = await doctor({ home })

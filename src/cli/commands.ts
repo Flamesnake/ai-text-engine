@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveDefaultProjectsRoot } from '../mcp/projects.js'
+import { exportStory, validateStory } from '../mcp/handlers.js'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const BUNDLED_SKILL = path.join(PACKAGE_ROOT, 'skill')
@@ -73,6 +74,26 @@ export async function initHome(home?: string): Promise<{ projectsRoot: string }>
   const projectsRoot = projectsRootForHome(home)
   await mkdir(projectsRoot, { recursive: true })
   return { projectsRoot }
+}
+
+export interface ExportProjectOptions {
+  title: string
+  outputDir?: string
+}
+
+/** CLI 版导出：薄封装 MCP handler，非 Agent 用户与 CI 流水线获得同一入口。 */
+export async function exportProject(options: ExportProjectOptions): Promise<unknown> {
+  return exportStory(options)
+}
+
+export interface ValidateProjectOptions {
+  title: string
+  compact?: boolean
+}
+
+/** CLI 版校验：薄封装 MCP handler。 */
+export async function validateProject(options: ValidateProjectOptions): Promise<unknown> {
+  return validateStory(options)
 }
 
 export function resolveSkillTarget(

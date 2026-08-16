@@ -2,7 +2,16 @@ import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { doctor, initHome, installSkill, projectsRootForHome, resolveSkillTarget } from './commands.js'
+import {
+  doctor,
+  exportProject,
+  initHome,
+  installSkill,
+  projectsRootForHome,
+  resolveSkillTarget,
+  validateProject,
+} from './commands.js'
+import * as projects from '../mcp/projects.js'
 
 describe('npm CLI commands', () => {
   it('显式 home 始终把作品放在 projects 子目录', () => {
@@ -42,5 +51,39 @@ describe('npm CLI commands', () => {
     expect(result.checks.map((check) => check.name)).toEqual([
       'package', 'mcp-server', 'runtime-bundle', 'skill', 'projects-root',
     ])
+  })
+
+  it('export 命令导出 HTML（薄封装 story_export，与 MCP 同一 handler）', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ate-cli-export-'))
+    projects.setProjectsRoot(root)
+    await projects.saveStory(projects.createSkeletonStory({ title: 'CLI导出' }))
+    const result = (await exportProject({ title: 'CLI导出' })) as {
+      ok: boolean
+      outputPath: string
+      sizeBytes: number
+      endingCount: number
+    }
+    expect(result.ok).toBe(true)
+    expect(result.endingCount).toBeGreaterThan(0)
+    const html = await readFile(result.outputPath, 'utf-8')
+    expect(html).toContain('TextAdventure.mountTextAdventure')
+    expect(result.sizeBytes).toBeGreaterThan(1000)
+  })
+
+  it('validate 命令返回校验结论（薄封装 story_validate）', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ate-cli-validate-'))
+    projects.setProjectsRoot(root)
+    await projects.saveStory(projects.createSkeletonStory({ title: 'CLI校验' }))
+    const ok = (await validateProject({ title: 'CLI校验' })) as { validatePass: boolean; nodeCount: number }
+    expect(ok.validatePass).toBe(true)
+    expect(ok.nodeCount).toBe(2)
+
+    // 破坏剧情 → 校验失败
+    const story = await projects.loadStory('CLI校验')
+    story.nodes.start.choices[0].target = '不存在的节点'
+    await projects.saveStory(story)
+    const broken = (await validateProject({ title: 'CLI校验' })) as { validatePass: boolean; problems: unknown[] }
+    expect(broken.validatePass).toBe(false)
+    expect(broken.problems.length).toBeGreaterThan(0)
   })
 })
