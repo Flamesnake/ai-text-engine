@@ -1,7 +1,31 @@
 import { Game } from '../core/engine.js'
-import type { EndingMeta, GameState, PresentationConfig, SoundscapeSpec, StageCue, StateAppearance, Story, StoryNode, TextBlock, TextSegment, ThemeConfig } from '../core/types.js'
+import type { EndingMeta, FxSpec, GameState, PresentationConfig, SoundscapeSpec, StateAppearance, Story, StoryNode, TextBlock, TextSegment, ThemeConfig } from '../core/types.js'
 import { disposeSfx, initSfx, isMuted, playSfx, setSoundscape, toggleMuted, type SfxName } from './sfx.js'
 import { resolveTheme } from './themes.js'
+import { TypewriterController } from './runtime/typewriter.js'
+import { HandbookController } from './runtime/handbook.js'
+import {
+  clearStageCutscene,
+  isStageMoment,
+  openStageCutscene,
+  renderStage,
+  type StageMutableState,
+} from './runtime/stage.js'
+
+// P2-2 拆分后舞台 cue 恢复与无障碍文案位于 runtime/stage.js；公开 API 保持原导出点不变。
+export { resolveStageForHistory, stageAriaLabel } from './runtime/stage.js'
+import {
+  renderChoiceButtons,
+  renderGameHeader,
+  renderPageHeader,
+  siteArchiveLabel,
+  siteClearLabel,
+  siteContinueLabel,
+  siteDefaultLayout,
+  siteStartLabel,
+  siteTitleBadge,
+  type SiteRenderCtx,
+} from './runtime/site.js'
 
 /**
  * 运行时渲染器：内嵌于导出的单文件 HTML 中（经 esbuild bundle 成 IIFE）。
@@ -47,36 +71,10 @@ export function resolveSoundscapeForHistory(
 }
 
 /** 由访问序列重建最近舞台；cue 按字段合并，actors 数组整体替换，clear 撤台。 */
-export function resolveStageForHistory(story: Story, history: readonly string[]): StageCue | null {
-  let current: StageCue | null = null
-  for (const [index, nodeId] of history.entries()) {
-    if (index > 0 && current) {
-      const previous: StageCue = current
-      current = {
-        ...previous,
-        ...(previous.camera === 'push' ? { camera: 'close' as const } : {}),
-        ...(previous.actors ? {
-          actors: previous.actors.map(({ entrance: _entrance, ...actor }) => actor),
-        } : {}),
-      }
-    }
-    const cue = story.nodes[nodeId]?.stage
-    if (cue === 'clear') {
-      current = null
-    } else if (cue) {
-      current = {
-        ...(current ?? {}),
-        ...cue,
-        ...(cue.actors !== undefined ? { actors: cue.actors } : {}),
-      }
-    }
-  }
-  return current
-}
-
 export function mountTextAdventure(root: HTMLElement, story: Story, options?: MountOptions): MountedTextAdventure {
   const storage = options?.storage ?? window.localStorage
-  const saveKey = options?.saveKey ?? `ate:${story.meta.title}`
+  // 存档 key 优先用作品稳定 uid，避免 file:// 下同标题/改名作品互相覆盖；旧作品无 uid 时回退标题 key。
+  const saveKey = options?.saveKey ?? (story.meta.uid ? `ate:${story.meta.uid}` : `ate:${story.meta.title}`)
   let game: Game
   /** 上次渲染时的成就快照（用于检测新解锁弹 toast） */
   let lastAchievements: string[] = []
@@ -85,6 +83,45 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   /** 不稳定灯随机爆发定时器 */
   let unstableTimer: ReturnType<typeof setTimeout> | null = null
   let lastRenderedStateKey: string | null = null
+  /** 最近一次渲染的节点 id：同节点重绘（关手册等）不重播舞台过场。 */
+  let lastRenderedNodeId: string | null = null
+  /** 舞台过场共享状态（P2-2：传给 runtime/stage.ts，由模块读写）。 */
+  const stageState: StageMutableState = { activeStage3d: null, stageCutsceneTimer: null }
+  /** 逐字输出控制器（P2-2：独立模块持有活动元素与定时器）。 */
+  const typewriter = new TypewriterController()
+
+  /** 拟态网站渲染上下文（P2-2：site 模块显式传递；game 由 getter 延迟求值）。 */
+  /** 调查手册控制器（P2-2：独立模块持有刷新标记与已揭示提示）。 */
+  const handbook = new HandbookController({
+    story,
+    root,
+    game: () => game,
+    esc,
+    cssEscape,
+    playSfx,
+    save,
+    refreshStory: () => renderNode(),
+    bindIn,
+  })
+
+  /** 舞台渲染上下文（P2-2：stage 模块显式传递）。 */
+  const stageCtx = {
+    story,
+    root,
+    history: () => game.state.history,
+    renderStageHtml: () => renderStage(stageCtx),
+    state: stageState,
+  } as const
+
+  /** 拟态网站渲染上下文（P2-2：site 模块显式传递；game 由 getter 延迟求值）。 */
+  const siteCtx: SiteRenderCtx = {
+    story,
+    get game() {
+      return game
+    },
+    esc,
+    muteButtonHtml,
+  }
 
   initSfx()
 
@@ -141,7 +178,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const vars: string[] = []
     let unstable: { intensity: number; speed: number } | null = null
     for (const item of node.fx ?? []) {
-      const spec = typeof item === 'string' ? { name: item } : item
+      const spec: FxSpec = typeof item === 'string' ? { name: item } : item
       cls.push(`fx-${spec.name}`)
       const intensity = spec.intensity ?? 1
       const speed = Math.max(0.1, spec.speed ?? 1)
@@ -169,6 +206,16 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
           vars.push(`--fx-pulse-scale: ${(1 + 0.02 * intensity).toFixed(3)}`)
           vars.push(`--fx-pulse-dur: ${dur(1.4)}`)
           break
+        case 'spotlight': {
+          // intensity 控制四周压暗深度（越强对比越明显）；speed 控制摇晃/闪烁周期。
+          const dim = Math.min(0.6, Math.max(0.15, 0.4 * intensity)).toFixed(2)
+          vars.push(`--fx-spotlight-dim: ${dim}`)
+          vars.push(`--fx-spotlight-sway-dur: ${dur(3.4)}`)
+          vars.push(`--fx-spotlight-flicker-dur: ${dur(1.1)}`)
+          if (spec.sway) cls.push('fx-spotlight-sway')
+          if (spec.flicker) cls.push('fx-spotlight-flicker')
+          break
+        }
       }
     }
     return { cls: cls.join(' '), style: vars.join('; '), unstable }
@@ -263,62 +310,45 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     density: 'balanced',
     shape: 'soft',
     choiceStyle: 'buttons',
+    choiceReveal: 'fade',
+    textReveal: 'instant',
   }
 
-  /** 全局只定义一次，节点仅覆盖差异项；返回稳定 class 供 CSS 外壳组合。 */
-  function presentationClasses(node?: StoryNode): string {
+  /** 全局只定义一次，节点仅覆盖差异项；返回合并后的有效视觉配置。 */
+  function effectivePresentation(node?: StoryNode): Required<PresentationConfig> {
     const statePresentation = currentAppearances().reduce<PresentationConfig>(
       (merged, appearance) => ({ ...merged, ...(appearance.presentation ?? {}) }),
       {},
     )
-    const p = {
+    return {
       ...presentationDefaults,
       ...(story.meta.presentation ?? {}),
       ...statePresentation,
       ...(node?.presentation ?? {}),
     }
+  }
+
+  /** 稳定 class 供 CSS 外壳组合。 */
+  function presentationClasses(node?: StoryNode): string {
+    const p = effectivePresentation(node)
     return [
       `shell-${p.shell}`,
       `type-${p.typography}`,
       `density-${p.density}`,
       `shape-${p.shape}`,
       `choice-${p.choiceStyle}`,
+      `choice-reveal-${p.choiceReveal}`,
+      `text-reveal-${p.textReveal}`,
       story.meta.site ? `site-${story.meta.site.kind}` : '',
+      story.meta.site?.persona ? `site-${story.meta.site.kind}-${story.meta.site.persona}` : '',
     ].join(' ')
-  }
-
-  function renderGameHeader(step: number): string {
-    if (story.meta.site?.kind === 'news') {
-      const site = story.meta.site
-      return `<header class="game-header site-header">
-        <div class="site-utility"><span>${esc(site.locale ?? '独立新闻档案')}</span><span>第 ${step} 页</span></div>
-        <div class="site-masthead"><span class="site-name">${esc(site.name)}</span>${site.tagline ? `<span class="site-tagline">${esc(site.tagline)}</span>` : ''}</div>
-        <nav class="site-tools" aria-label="调查工具">
-          ${puzzlesButton()}${charactersButton()}${evidenceBoardButton()}${docsButton()}${muteButtonHtml()}
-        </nav>
-      </header>`
-    }
-    return `<header class="game-header">
-      <span class="game-title">${esc(story.meta.title)}</span>
-      <span class="game-step">第 ${step} 步</span>
-      ${puzzlesButton()}${charactersButton()}${evidenceBoardButton()}${docsButton()}${muteButtonHtml()}
-    </header>`
-  }
-
-  function renderPageHeader(node: StoryNode): string {
-    if (story.meta.site?.kind !== 'news' || (node.stage && node.stage !== 'clear')) return ''
-    const page = node.page ?? {}
-    const headline = page.headline ?? node.objective ?? story.meta.subtitle ?? story.meta.title
-    const details = [page.byline ? `记者 ${page.byline}` : '', page.timestamp ?? ''].filter(Boolean)
-    return `<header class="web-page-header page-layout-${page.layout ?? 'article'}" data-web-page="${page.layout ?? 'article'}">
-      ${page.section ? `<span class="web-page-section">${esc(page.section)}</span>` : ''}
-      <h1 class="web-page-headline">${esc(game.interpolate(headline))}</h1>
-      ${details.length > 0 ? `<p class="web-page-meta">${details.map(esc).join('<span aria-hidden="true"> · </span>')}</p>` : ''}
-    </header>`
   }
 
   function renderTitle(): void {
     clearUnstable()
+    typewriter.clear()
+    clearStageCutscene(stageCtx)
+    lastRenderedNodeId = null
     setSoundscape(null)
     applyTheme(false)
     lastRenderedStateKey = null
@@ -327,14 +357,14 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const site = story.meta.site
     root.innerHTML = `
       <main class="screen title-screen ${presentationClasses()}">
-        <div class="title-badge">${site?.kind === 'news' ? esc(site.locale ?? '独立新闻档案') : 'TEXT ADVENTURE'}</div>
+        <div class="title-badge">${siteTitleBadge(story)}</div>
         <h1 class="title-main">${esc(site?.name ?? story.meta.title)}</h1>
         ${(site?.tagline ?? story.meta.subtitle) ? `<p class="title-sub">${esc(site?.tagline ?? story.meta.subtitle ?? '')}</p>` : ''}
         <div class="title-actions">
-          <button class="btn btn-primary" data-action="start">${site?.kind === 'news' ? '浏览最新报道' : '开始游戏'}</button>
-          ${has ? `<button class="btn" data-action="continue">${site?.kind === 'news' ? '继续浏览' : '继续上次'}</button>` : ''}
-          ${has ? `<button class="btn btn-ghost" data-action="clear">${site?.kind === 'news' ? '清除浏览记录' : '清除存档'}</button>` : ''}
-          ${achCount > 0 ? `<button class="btn btn-ghost" data-action="achievements">${site?.kind === 'news' ? '阅读档案' : '成就'}</button>` : ''}
+          <button class="btn btn-primary" data-action="start">${siteStartLabel(story)}</button>
+          ${has ? `<button class="btn" data-action="continue">${siteContinueLabel(story)}</button>` : ''}
+          ${has ? `<button class="btn btn-ghost" data-action="clear">${siteClearLabel(story)}</button>` : ''}
+          ${achCount > 0 ? `<button class="btn btn-ghost" data-action="achievements">${siteArchiveLabel(story)}</button>` : ''}
         </div>
         <p class="title-foot">${muteButtonHtml()}</p>
       </main>`
@@ -342,6 +372,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       game = new Game(story)
       lastAchievements = [...game.state.achievements]
       lastEvidence = []
+      handbook.resetState()
+      lastRenderedNodeId = null
       save()
       renderNode()
     })
@@ -349,6 +381,8 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       game = new Game(story, load())
       lastAchievements = [...game.state.achievements]
       lastEvidence = [...game.state.evidence]
+      handbook.resetState()
+      lastRenderedNodeId = null
       renderNode()
     })
     bind('[data-action="clear"]', () => {
@@ -366,14 +400,15 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
   /** 成就列表画面 */
   function renderAchievements(): void {
     clearUnstable()
+    typewriter.clear()
     const achievements = story.achievements ?? []
     const unlocked = load()?.achievements ?? []
-    const newsSite = story.meta.site?.kind === 'news'
+    const siteMode = Boolean(story.meta.site)
     root.innerHTML = `
       <main class="screen title-screen achievements-screen ${presentationClasses()}">
-        <div class="title-badge">${newsSite ? 'ARCHIVE' : 'ACHIEVEMENTS'}</div>
-        <h2 class="ach-heading">${newsSite ? '阅读档案' : '成就'}</h2>
-        <p class="ach-count">${newsSite ? '已发现' : '已解锁'} ${unlocked.length} / ${achievements.length}</p>
+        <div class="title-badge">${siteMode ? 'ARCHIVE' : 'ACHIEVEMENTS'}</div>
+        <h2 class="ach-heading">${siteArchiveLabel(story)}</h2>
+        <p class="ach-count">${siteMode ? '已发现' : '已解锁'} ${unlocked.length} / ${achievements.length}</p>
         <div class="ach-list">
           ${achievements
             .map((ach) => {
@@ -390,7 +425,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
             .join('')}
         </div>
         <div class="title-actions">
-          <button class="btn" data-action="back">${newsSite ? '返回首页' : '返回'}</button>
+          <button class="btn" data-action="back">${siteMode ? '返回首页' : '返回'}</button>
         </div>
       </main>`
     bind('[data-action="back"]', () => renderTitle())
@@ -408,7 +443,7 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const toast = document.createElement('div')
     toast.className = 'achievement-toast'
     toast.innerHTML = items
-      .map((a) => `<div class="ach-toast-item">${esc(a.icon ?? '🏆')} ${story.meta.site?.kind === 'news' ? '发现档案' : '成就解锁'}：${esc(a.title)}</div>`)
+      .map((a) => `<div class="ach-toast-item">${esc(a.icon ?? '🏆')} ${story.meta.site ? '发现档案' : '成就解锁'}：${esc(a.title)}</div>`)
       .join('')
     root.appendChild(toast)
     playSfx('achievement')
@@ -417,8 +452,13 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   function renderNode(): void {
     save()
+    typewriter.clear()
+    clearStageCutscene(stageCtx)
     const node = game.currentNode
     const step = game.stepCount
+    const stageMoment = isStageMoment(node)
+    const showStageCutscene = stageMoment && node.id !== lastRenderedNodeId
+    const presentation = effectivePresentation(node)
     applyTheme()
     setSoundscape(resolveSoundscape())
     const stateKey = `${game.state.world}\u0000${game.state.phase}`
@@ -434,36 +474,29 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     const scenePuzzles = game.availablePuzzles()
     const newEvidence = game.state.evidence.filter((id) => !lastEvidence.includes(id))
     lastEvidence = [...game.state.evidence]
-    const tutorial = activeTutorial(scenePuzzles.length > 0)
+    const handbookAttention = scenePuzzles.length > 0 || newEvidence.length > 0
+    const tutorial = handbook.activeTutorial(scenePuzzles.length > 0)
     playNodeSfx(node)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? 'article'}"` : ''}>
-        ${renderGameHeader(step)}
-        ${renderHud()}
-        ${renderInventory(game.state.inventory)}
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? siteDefaultLayout(story.meta.site.kind)}"${node.page?.composition ? ` data-page-composition="${node.page.composition}"` : ''}` : ''}>
+        ${renderGameHeader(siteCtx, step)}
+        ${handbook.fabHtml(handbookAttention)}
         ${node.objective ? `<aside class="scene-objective"><strong>当前目标</strong><span>${esc(game.interpolate(node.objective))}</span></aside>` : ''}
-        ${newEvidence.length > 0 ? `<aside class="evidence-notice"><strong>新证据</strong><span>${newEvidence.map((id) => esc(story.evidence?.[id]?.title ?? id)).join('、')}已加入推理板，可与其他证据组合。</span></aside>` : ''}
-        ${tutorial ? tutorialBanner(tutorial) : ''}
-        ${renderStage()}
+        ${newEvidence.length > 0 ? `<aside class="evidence-notice"><strong>新证据</strong><span>${newEvidence.map((id) => esc(story.evidence?.[id]?.title ?? id)).join('、')}已加入推理板。</span><button class="btn btn-ghost docs-btn" data-action="open-evidence">整理线索并推理</button></aside>` : ''}
+        ${tutorial ? handbook.tutorialBanner(tutorial) : ''}
         <section class="card ${fx.cls}" style="${fx.style}">
-          ${renderPageHeader(node)}
+          ${renderPageHeader(siteCtx, node)}
           ${renderChoiceResponse()}
-          ${renderBody(node)}
+          ${renderBody(node, presentation.textReveal)}
           <div class="card-actions">
-            ${deductionAction()}
             ${scenePuzzles
               .map(
                 (puzzle) =>
                   `<button class="btn btn-primary puzzle-choice" data-puzzle-choice="${esc(puzzle.id)}">${esc(puzzle.actionLabel ?? `解开：${puzzle.title}`)}</button>`,
               )
               .join('')}
-            ${choices
-              .map(
-                (c, i) =>
-                  `<button class="btn choice-btn" data-choice="${i}" data-choice-label="${esc(c.label)}" data-choice-target="${esc(c.target)}">${esc(game.interpolate(c.label))}</button>`,
-              )
-              .join('')}
+            ${renderChoiceButtons(siteCtx, node, choices)}
           </div>
         </section>
       </main>`
@@ -474,15 +507,15 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       save()
       renderNode()
     })
-    bind('[data-deduction-choice]', () => renderEvidenceBoard())
+    bind('[data-action="open-evidence"]', () => handbook.open('evidence', 'story'))
     root.querySelectorAll<HTMLElement>('[data-puzzle-choice]').forEach((button) => {
-      button.addEventListener('click', () => renderPuzzles('', button.dataset.puzzleChoice))
+      button.addEventListener('click', () => handbook.open('puzzles', 'story', button.dataset.puzzleChoice))
     })
-    bind('[data-action="docs"]', () => renderDocsList())
-    bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
-    bind('[data-action="characters"]', () => renderCharacters())
-    bind('[data-action="puzzles"]', () => renderPuzzles())
+    bind('[data-action="handbook"]', () => handbook.open('hub', 'handbook'))
     bindMute()
+    typewriter.init(root)
+    lastRenderedNodeId = node.id
+    if (showStageCutscene) openStageCutscene(stageCtx)
     const cardEl = root.querySelector<HTMLElement>('.card')
     if (cardEl && fx.unstable) startUnstable(cardEl, fx.unstable)
     notifyNewAchievements()
@@ -495,48 +528,28 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     return `<aside class="choice-response" data-choice-response="true">${esc(game.interpolate(trace.response))}</aside>`
   }
 
-  function renderStage(): string {
-    const stage = resolveStageForHistory(story, game.state.history)
-    if (!stage) return ''
-    const backdrop = stage.backdrop ?? 'neutral'
-    const lighting = stage.lighting ?? 'natural'
-    const camera = stage.camera ?? 'medium'
-    const actors = stage.actors ?? []
-    const actorNames = actors.map((actor) => story.characters?.[actor.characterId]?.name ?? actor.characterId)
-    const label = [`${backdrop} 布景`, `${lighting} 灯光`, ...actorNames].join('，')
-    return `<section class="stage-scene stage-backdrop-${backdrop} stage-light-${lighting} stage-camera-${camera}" data-stage="true" data-backdrop="${backdrop}" data-lighting="${lighting}" data-camera="${camera}" role="img" aria-label="${esc(label)}">
-      <div class="stage-set" aria-hidden="true"></div>
-      <div class="stage-actors">
-        ${actors.map((actor) => {
-          const character = story.characters?.[actor.characterId]
-          const name = character?.name ?? actor.characterId
-          const initial = Array.from(name.trim())[0] ?? '·'
-          const pose = actor.pose ?? 'neutral'
-          const entrance = actor.entrance ?? 'none'
-          return `<figure class="stage-actor stage-pos-${actor.position} stage-pose-${pose} stage-enter-${entrance}${actor.focus ? ' stage-focus' : ''}" data-stage-actor="${esc(actor.characterId)}" data-position="${actor.position}" data-pose="${pose}"${actor.focus ? ' data-focus="true"' : ''}>
-            <div class="stage-actor-figure"><span>${esc(initial)}</span></div>
-            <figcaption>${esc(name)}</figcaption>
-          </figure>`
-        }).join('')}
-      </div>
-    </section>`
+  function typewriterAttr(textReveal: PresentationConfig['textReveal']): string {
+    return textReveal === 'typewriter' || textReveal === 'terminal'
+      ? ` data-text-reveal="${textReveal}"`
+      : ''
   }
 
-  function renderBody(node: StoryNode): string {
+  function renderBody(node: StoryNode, textReveal: PresentationConfig['textReveal'] = 'instant'): string {
     const blocks = node.blocks
     if (blocks?.length) {
-      return blocks.map((b) => renderBlock(b)).join('')
+      return blocks.map((b) => renderBlock(b, textReveal)).join('')
     }
-    return `<div class="card-text">${esc(game.interpolate(node.text))}</div>`
+    return `<div class="card-text"${typewriterAttr(textReveal)}>${esc(game.interpolate(node.text))}</div>`
   }
 
-  function renderBlock(block: TextBlock): string {
-    const text = block.segments?.length
-      ? block.segments.map((segment) => renderSegment(segment)).join('')
+  function renderBlock(block: TextBlock, textReveal: PresentationConfig['textReveal'] = 'instant'): string {
+    const hasSegments = Boolean(block.segments?.length)
+    const text = hasSegments
+      ? block.segments!.map((segment) => renderSegment(segment)).join('')
       : esc(game.interpolate(block.text))
     switch (block.type) {
       case 'title':
-        return `<h3 class="block-title">${block.segments?.length ? text : esc(block.title ?? game.interpolate(block.text))}</h3>`
+        return `<h3 class="block-title">${hasSegments ? text : esc(block.title ?? game.interpolate(block.text))}</h3>`
       case 'rules':
         return `<div class="block block-rules"><div class="block-head">${esc(block.title ?? '规则')}</div><div class="block-body">${text}</div></div>`
       case 'note':
@@ -544,11 +557,12 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       case 'letter':
         return `<div class="block block-letter"><div class="block-head">${esc(block.title ?? '信')}</div><div class="block-body">${text}</div></div>`
       default:
-        return `<p class="block-para">${text}</p>`
+        // 带受控片段的 para 保持条件揭示逻辑，不参与逐字输出。
+        return `<p class="block-para"${hasSegments ? '' : typewriterAttr(textReveal)}>${text}</p>`
     }
   }
 
-  /**
+/**
    * 只渲染 schema 允许的片段样式；条件未满足时，真实文本不会进入 DOM。
    * 这让遮挡可用于谜题，同时避免任意 HTML/CSS 成为导出作品的注入入口。
    */
@@ -581,242 +595,9 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     return '…'
   }
 
-  /** 游戏画面右上角的线索入口（有线索时显示） */
-  function docsButton(): string {
-    if (game.state.docs.length === 0 || !story.documents) return ''
-    return `<button class="btn btn-ghost docs-btn" data-action="docs">线索 ${game.state.docs.length}</button>`
-  }
-
-  function evidenceBoardButton(): string {
-    if (game.state.evidence.length === 0 || !story.evidence || !story.deductions) return ''
-    return `<button class="btn btn-ghost docs-btn" data-action="evidence-board">推理板 ${game.state.evidence.length}</button>`
-  }
-
-  function deductionAction(): string {
-    const hasUnconfirmed = Object.values(story.deductions ?? {}).some(
-      (deduction) => !game.state.deductions.includes(deduction.id),
-    )
-    if (game.state.evidence.length === 0 || !hasUnconfirmed) return ''
-    return `<button class="btn btn-primary deduction-choice" data-deduction-choice>整理线索并推理（${game.state.evidence.length} 条）</button>`
-  }
-
-  function activeTutorial(hasPuzzle: boolean): 'deduction' | 'puzzle' | 'relationship' | null {
-    const hasUnconfirmedDeduction = game.state.evidence.length > 0 && Object.values(story.deductions ?? {})
-      .some((deduction) => !game.state.deductions.includes(deduction.id))
-    if (hasPuzzle && !game.hasSeenTutorial('puzzle')) return 'puzzle'
-    if (hasUnconfirmedDeduction && !game.hasSeenTutorial('deduction')) return 'deduction'
-    if (story.characters && Object.keys(story.characters).length > 0 && !game.hasSeenTutorial('relationship')) return 'relationship'
-    return null
-  }
-
-  function tutorialBanner(kind: 'deduction' | 'puzzle' | 'relationship'): string {
-    const content = {
-      deduction: ['推理板', '收集到的证据会进入推理板。选择一个推论并组合支持它的证据，可以解锁新的行动与结局。'],
-      puzzle: ['场景谜题', '醒目的谜题行动可以直接尝试；答案来自场景信息，遇到困难可查看渐进提示或返回调查。'],
-      relationship: ['人物关系', '你的回应会改变人物的信任与记忆，从而影响证词、秘密、行动或结局。'],
-    }[kind]
-    return `<aside class="tutorial-banner" data-tutorial="${kind}"><div><strong>${content[0]}</strong><span>${content[1]}</span></div><button class="btn btn-ghost" data-action="dismiss-tutorial">知道了</button></aside>`
-  }
-
-  function charactersButton(): string {
-    if (!story.characters || Object.keys(story.characters).length === 0) return ''
-    return `<button class="btn btn-ghost docs-btn" data-action="characters">人物</button>`
-  }
-
-  function puzzlesButton(): string {
-    if (!story.puzzles || (game.availablePuzzles().length === 0 && game.state.solvedPuzzles.length === 0)) return ''
-    const unsolved = game.availablePuzzles().length
-    return `<button class="btn btn-ghost docs-btn" data-action="puzzles">谜题${unsolved > 0 ? ` ${unsolved}` : ''}</button>`
-  }
-
-  /** 密码谜题页：确定性答案验证、错误次数和渐进提示。 */
-  function renderPuzzles(message = '', preferredId?: string): void {
-    clearUnstable()
-    const available = game.availablePuzzles()
-    const solved = game.state.solvedPuzzles
-      .map((id) => story.puzzles?.[id])
-      .filter((puzzle): puzzle is NonNullable<typeof puzzle> => Boolean(puzzle))
-    const puzzles = [...available, ...solved.filter((puzzle) => !available.some((item) => item.id === puzzle.id))]
-    const active = puzzles.find((puzzle) => puzzle.id === preferredId) ?? puzzles[0]
-    const revealedCount = active ? (game.state.puzzleHints[active.id] ?? 0) : 0
-    const revealedHints = active?.hints?.slice(0, revealedCount) ?? []
-    const isSolved = active ? game.state.solvedPuzzles.includes(active.id) : false
-    root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses()}">
-        <header class="game-header"><span class="game-title">谜题</span><span class="game-step">${puzzles.length} 项</span></header>
-        ${active ? `<section class="card puzzle-card" data-puzzle="${esc(active.id)}">
-          <h2 class="puzzle-title">${esc(active.title)}</h2>
-          <p class="puzzle-prompt">${esc(active.prompt)}</p>
-          ${isSolved ? '<div class="puzzle-solved">已解开</div>' : `<input class="puzzle-answer" data-puzzle-answer="${esc(active.id)}" autocomplete="off" aria-label="谜题答案"/>
-          <div class="card-actions puzzle-actions">
-            <button class="btn btn-primary" data-action="attempt-puzzle">提交答案</button>
-            ${active.hints?.length ? '<button class="btn btn-ghost" data-action="puzzle-hint">查看提示</button>' : ''}
-          </div>`}
-          <div data-puzzle-hints class="puzzle-hints">${revealedHints.map((hint, index) => `<p>提示 ${index + 1}：${esc(hint)}</p>`).join('')}</div>
-          <p data-puzzle-result class="puzzle-result">${esc(message)}</p>
-        </section>` : '<section class="card"><p>当前没有可用谜题。</p></section>'}
-        <div class="card-actions"><button class="btn" data-action="back">返回</button></div>
-      </main>`
-    bind('[data-action="back"]', () => renderNode())
-    bind('[data-action="attempt-puzzle"]', () => {
-      if (!active) return
-      const answer = root.querySelector<HTMLInputElement>(`[data-puzzle-answer="${cssEscape(active.id)}"]`)?.value ?? ''
-      const result = game.attemptPuzzle(active.id, answer)
-      save()
-      renderPuzzles(
-        result.solved ? '谜题已解开。新的行动可能已经解锁。' : `答案不正确，已尝试 ${result.attempts} 次。`,
-        active.id,
-      )
-    })
-    bind('[data-action="puzzle-hint"]', () => {
-      if (!active) return
-      const result = game.revealPuzzleHint(active.id)
-      save()
-      renderPuzzles(result.hint ? `已揭示提示 ${result.revealed} / ${result.total}` : '没有更多提示。', active.id)
-    })
-  }
-
-  /** 人物页：展示人物说明、当前关系与已揭示/未知秘密。 */
-  function renderCharacters(): void {
-    clearUnstable()
-    const characters = Object.values(story.characters ?? {})
-    root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses()}">
-        <header class="game-header"><span class="game-title">人物</span><span class="game-step">${characters.length} 人</span></header>
-        <div class="character-list">${characters.map((character) => {
-          const stats = Object.entries(character.relations ?? {})
-          const secrets = Object.entries(character.secrets ?? {})
-          return `<section class="card character-card" data-character="${esc(character.id)}">
-            <h2 class="character-name">${esc(character.name)}</h2>
-            <p class="character-description">${esc(character.description)}</p>
-            <div class="relation-list">${stats.map(([stat, definition]) =>
-              `<span class="relation-chip">${esc(definition.label)} ${game.state.relations[character.id]?.[stat] ?? definition.initial ?? 0}</span>`,
-            ).join('')}</div>
-            <div class="secret-list">${secrets.map(([secretId, secret]) => {
-              const ref = `${character.id}:${secretId}`
-              const revealed = game.state.revealedSecrets.includes(ref)
-              return `<article class="secret-item ${revealed ? 'secret-revealed' : 'secret-unknown'}" data-secret="${esc(ref)}">
-                <strong>${revealed ? esc(secret.title) : '未知秘密'}</strong>
-                <span>${revealed ? esc(secret.description) : '继续与这个人物互动，或许能发现更多。'}</span>
-              </article>`
-            }).join('')}</div>
-          </section>`
-        }).join('')}</div>
-        <div class="card-actions"><button class="btn" data-action="back">返回</button></div>
-      </main>`
-    bind('[data-action="back"]', () => renderNode())
-  }
-
-  /** 推理板：选择推论和证据，提交给 Game 的确定性推论接口。 */
-  function renderEvidenceBoard(resultMessage = ''): void {
-    clearUnstable()
-    const owned = game.state.evidence
-      .map((id) => story.evidence?.[id])
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    const deductions = Object.values(story.deductions ?? {})
-    root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses()}">
-        <header class="game-header"><span class="game-title">推理板</span><span class="game-step">${owned.length} 条证据</span></header>
-        <section class="card deduction-board">
-          <p class="deduction-guide">先选择一项待证明的推论，再勾选支持它的证据，最后点击“验证推论”。证据不足时可以返回场景继续调查。</p>
-          <h2 class="deduction-heading">待证明的推论</h2>
-          <div class="deduction-list">${deductions.map((deduction, index) => {
-            const confirmed = game.state.deductions.includes(deduction.id)
-            const ownedSet = new Set(game.state.evidence)
-            const required = deduction.requires.all ?? []
-            const alternativeGroups = deduction.requires.anyOf ?? []
-            const requiredOwned = required.filter((id) => ownedSet.has(id)).length
-            const groupsMet = alternativeGroups.filter((group) => group.some((id) => ownedSet.has(id))).length
-            const canConfirm = requiredOwned === required.length && groupsMet === alternativeGroups.length
-            return `<label class="deduction-item ${confirmed ? 'deduction-confirmed' : ''}" data-deduction="${esc(deduction.id)}" data-deduction-can-confirm="${canConfirm}">
-              <input type="radio" name="deduction" value="${esc(deduction.id)}" ${index === 0 ? 'checked' : ''} ${confirmed ? 'disabled' : ''}/>
-              <span><strong>${esc(deduction.statement)}${confirmed ? ' · 已成立' : ''}</strong>
-                <small data-deduction-progress="${esc(deduction.id)}">必需证据 ${requiredOwned}/${required.length}${alternativeGroups.length > 0 ? ` · 替代证据组 ${groupsMet}/${alternativeGroups.length}` : ''}</small>
-                ${deduction.hint && !confirmed ? `<small data-deduction-hint="${esc(deduction.id)}">调查方向：${esc(deduction.hint)}</small>` : ''}
-              </span>
-            </label>`
-          }).join('')}</div>
-          <h2 class="deduction-heading">选择支持证据</h2>
-          <div class="evidence-list">${owned.map((evidence) => `<label class="evidence-item">
-            <input type="checkbox" data-evidence value="${esc(evidence.id)}"/>
-            <span><strong>${esc(evidence.title)}</strong><small>${esc(evidence.description)}</small></span>
-          </label>`).join('')}</div>
-          <p data-deduction-result class="deduction-result">${esc(resultMessage)}</p>
-          <div class="card-actions">
-            <button class="btn btn-primary" data-action="confirm-deduction">验证推论</button>
-            <button class="btn" data-action="back">返回</button>
-          </div>
-        </section>
-      </main>`
-    bind('[data-action="back"]', () => renderNode())
-    bind('[data-action="confirm-deduction"]', () => {
-      const deductionId = root.querySelector<HTMLInputElement>('input[name="deduction"]:checked')?.value
-      const selected = [...root.querySelectorAll<HTMLInputElement>('[data-evidence]:checked')].map((input) => input.value)
-      const success = deductionId ? game.confirmDeduction(deductionId, selected) : false
-      if (success) save()
-      renderEvidenceBoard(success ? '推论成立。新的行动可能已经解锁。' : '证据不足，或这些证据无法支持该推论。')
-    })
-  }
-
-  /** 线索夹列表画面 */
-  function renderDocsList(): void {
-    clearUnstable()
-    playSfx('page')
-    const owned = game.state.docs
-      .map((id) => story.documents?.[id])
-      .filter((d): d is NonNullable<typeof d> => Boolean(d))
-    root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses()}">
-        <header class="game-header">
-          <span class="game-title">线索夹</span>
-          <span class="game-step">${owned.length} 份</span>
-        </header>
-        <div class="doc-list">
-          ${owned
-            .map(
-              (d) => `<button class="doc-item" data-doc="${esc(d.id)}">
-                <span class="doc-kind">${esc(docKindLabel(d.kind))}</span>
-                <span class="doc-title">${esc(d.title)}</span>
-              </button>`,
-            )
-            .join('')}
-        </div>
-        <div class="card-actions">
-          <button class="btn" data-action="back">返回</button>
-        </div>
-      </main>`
-    bind('[data-action="back"]', () => renderNode())
-    root.querySelectorAll<HTMLButtonElement>('[data-doc]').forEach((btn) => {
-      btn.addEventListener('click', () => renderDocDetail(btn.dataset.doc!))
-    })
-  }
-
-  /** 单个线索查看画面 */
-  function renderDocDetail(docId: string): void {
-    clearUnstable()
-    playSfx('page')
-    const doc = story.documents?.[docId]
-    if (!doc) return
-    root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses()}">
-        <header class="game-header">
-          <span class="game-title">线索夹</span>
-          <span class="game-step">${esc(docKindLabel(doc.kind))}</span>
-        </header>
-        <section class="card">
-          <div class="block block-${esc(doc.kind ?? 'doc')}">
-            <div class="block-head">${esc(doc.title)}</div>
-            <div class="block-body">${esc(game.interpolate(doc.text))}</div>
-          </div>
-        </section>
-        <div class="card-actions">
-          <button class="btn" data-action="back">返回列表</button>
-        </div>
-      </main>`
-    bind('[data-action="back"]', () => renderDocsList())
-  }
-
   function renderEnding(ending: EndingMeta, step: number, transitionClass = ''): void {
+    typewriter.clear()
+    clearStageCutscene(stageCtx)
     const kindLabel: Record<EndingMeta['kind'], string> = {
       good: '结局 · 生还',
       bad: '结局 · 终焉',
@@ -824,33 +605,35 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
       hidden: '结局 · 隐藏',
     }
     const node = game.currentNode
+    const presentation = effectivePresentation(node)
     playSfx(`ending_${ending.kind}` as SfxName)
     const fx = cardFx(node)
     root.innerHTML = `
-      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? 'article'}"` : ''}>
-        ${renderGameHeader(step)}
-        ${renderStage()}
+      <main class="screen game-screen ${presentationClasses(node)} ${transitionClass}" data-node-id="${esc(node.id)}" data-ending-id="${esc(ending.id)}" data-world="${esc(game.state.world)}" data-phase="${esc(game.state.phase)}"${story.meta.site ? ` data-site-kind="${story.meta.site.kind}" data-page-layout="${node.page?.layout ?? siteDefaultLayout(story.meta.site.kind)}"${node.page?.composition ? ` data-page-composition="${node.page.composition}"` : ''}` : ''}>
+        ${renderGameHeader(siteCtx, step)}
+        ${handbook.fabHtml()}
+        ${node.stage && node.stage !== 'clear' ? stageCtx.renderStageHtml() : ''}
         <section class="card card-ending ending-${ending.kind} ${fx.cls}" style="${fx.style}">
-          ${renderPageHeader(node)}
+          ${renderPageHeader(siteCtx, node)}
           <div class="ending-badge">${kindLabel[ending.kind]}</div>
           <h2 class="ending-title">${esc(ending.title)}</h2>
           ${renderChoiceResponse()}
-          ${renderBody(node)}
+          ${renderBody(node, presentation.textReveal)}
           <div class="card-actions ending-actions">
             <button class="btn btn-primary" data-action="replay">${story.meta.site?.kind === 'news' ? '重新浏览' : '再来一次'}</button>
             <button class="btn btn-ghost" data-action="title">${story.meta.site?.kind === 'news' ? '返回首页' : '返回标题'}</button>
           </div>
         </section>
       </main>`
-    bind('[data-action="docs"]', () => renderDocsList())
-    bind('[data-action="evidence-board"]', () => renderEvidenceBoard())
-    bind('[data-action="characters"]', () => renderCharacters())
-    bind('[data-action="puzzles"]', () => renderPuzzles())
+    bind('[data-action="handbook"]', () => handbook.open('hub', 'handbook'))
     bindMute()
+    typewriter.init(root)
     bind('[data-action="replay"]', () => {
       game = new Game(story)
       lastAchievements = [...game.state.achievements]
       lastEvidence = []
+      handbook.resetState()
+      lastRenderedNodeId = null
       save()
       renderNode()
     })
@@ -860,36 +643,14 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
     notifyNewAchievements()
   }
 
-  function renderInventory(inventory: string[]): string {
-    if (inventory.length === 0) return ''
-    return `<div class="inventory">${inventory
-      .map((item) => `<span class="inv-chip">${esc(item)}</span>`)
-      .join('')}</div>`
-  }
-
-  /** HUD 统计条（meta.hud：好感度/理智值等数值变量；var 可为 #day） */
-  function renderHud(): string {
-    const hud = story.meta.hud
-    if (!hud?.length) return ''
-    return `<div class="hud">${hud
-      .map((stat) => {
-        const raw = stat.var === '#day' ? game.state.day : game.state.vars[stat.var]
-        const value = typeof raw === 'number' ? raw : 0
-        const max = stat.max ?? 100
-        const pct = Math.max(0, Math.min(100, (value / max) * 100))
-        return `<div class="hud-stat">
-          <span class="hud-label">${esc(stat.label)}</span>
-          <div class="hud-bar"><div class="hud-fill" style="width:${pct}%"></div></div>
-          <span class="hud-value">${value}${stat.max ? ` / ${stat.max}` : ''}</span>
-        </div>`
-      })
-      .join('')}</div>`
-  }
-
   /* ------------------------------ 事件 ------------------------------ */
 
+  function bindIn(container: HTMLElement, selector: string, handler: () => void): void {
+    container.querySelectorAll(selector).forEach((element) => element.addEventListener('click', handler))
+  }
+
   function bind(selector: string, handler: () => void): void {
-    root.querySelector(selector)?.addEventListener('click', handler)
+    bindIn(root, selector, handler)
   }
 
   function bindChoices(): void {
@@ -906,10 +667,65 @@ export function mountTextAdventure(root: HTMLElement, story: Story, options?: Mo
 
   /* ------------------------------ 启动 ------------------------------ */
 
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    const overlayOpen = root.querySelector('.handbook-overlay') !== null
+    const stageCutscene = root.querySelector<HTMLElement>('.stage-cutscene')
+    if (stageCutscene) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        clearStageCutscene(stageCtx)
+        return
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        stageCutscene.querySelector<HTMLElement>('[data-action="stage-advance"]')?.click()
+        return
+      }
+      return
+    }
+    if (event.key === 'Escape') {
+      if (overlayOpen) {
+        event.preventDefault()
+        handbook.close()
+      }
+      return
+    }
+    if (event.key === 'Enter' && typewriter.activeCount > 0) {
+      event.preventDefault()
+      typewriter.finishAll()
+      return
+    }
+    if (overlayOpen) return
+    switch (event.key.toLowerCase()) {
+      case 'h':
+        handbook.open('hub', 'handbook')
+        break
+      case 'c':
+        handbook.open('characters', 'handbook')
+        break
+      case 'i':
+        handbook.open('docs', 'handbook')
+        break
+      case 'r':
+        handbook.open('evidence', 'handbook')
+        break
+      case 'p':
+        handbook.open('puzzles', 'handbook')
+        break
+    }
+  }
+
+  document.addEventListener('keydown', handleKeydown)
   renderTitle()
   return {
     async destroy(): Promise<void> {
+      document.removeEventListener('keydown', handleKeydown)
       clearUnstable()
+      typewriter.clear()
+      clearStageCutscene(stageCtx)
       root.replaceChildren()
       await disposeSfx()
     },
@@ -928,20 +744,4 @@ function esc(text: string): string {
 /** CSS 属性选择器中的值转义（现代浏览器优先 CSS.escape，测试环境回退）。 */
 function cssEscape(text: string): string {
   return globalThis.CSS?.escape ? globalThis.CSS.escape(text) : text.replace(/["\\]/g, '\\$&')
-}
-
-/** 文档/块类型 → 中文标签 */
-function docKindLabel(kind?: string): string {
-  switch (kind) {
-    case 'rules':
-      return '守则'
-    case 'note':
-      return '便条'
-    case 'letter':
-      return '信'
-    case 'title':
-      return '标题'
-    default:
-      return '文档'
-  }
 }

@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountTextAdventure, resolveSoundscapeForHistory, resolveStageForHistory } from './runtime.js'
+import {
+  mountTextAdventure,
+  resolveSoundscapeForHistory,
+  resolveStageForHistory,
+  stageAriaLabel,
+} from './runtime.js'
+import { createStage3d } from './stage3d.js'
 import { makeStory } from '../core/fixtures.js'
+
+// WebGL 分支注入：默认仍走真实实现（happy-dom 下返回 null → CSS 回退），
+// 特定测试用 mockReturnValueOnce 模拟可用 WebGL 路径。
+vi.mock('./stage3d.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./stage3d.js')>()
+  return { ...actual, createStage3d: vi.fn(actual.createStage3d) }
+})
 
 /** 内存版 Storage（用于注入，避免污染真实 localStorage） */
 function memoryStorage(): { storage: Storage; map: Map<string, string> } {
@@ -106,7 +119,9 @@ describe('mountTextAdventure 运行时集成', () => {
     mountTextAdventure(root, story, { saveKey: 'test:stage', storage })
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
 
-    const stage = root.querySelector<HTMLElement>('[data-stage]')!
+    // 有演员的舞台成为过场：舞台直接出现在过场层中
+    const overlay = root.querySelector<HTMLElement>('.stage-cutscene')!
+    const stage = overlay.querySelector<HTMLElement>('[data-stage]')!
     expect(stage.dataset.backdrop).toBe('archive')
     expect(stage.classList.contains('stage-light-spotlight')).toBe(true)
     expect(stage.classList.contains('stage-camera-push')).toBe(true)
@@ -114,6 +129,104 @@ describe('mountTextAdventure 运行时集成', () => {
     expect(root.querySelector('[data-stage-actor="alice"]')?.className).toContain('stage-enter-slide')
     expect(root.querySelector('[data-stage-actor="bob"]')?.getAttribute('data-focus')).toBe('true')
     expect(stage.getAttribute('aria-label')).toContain('爱丽丝')
+  })
+
+  it('舞台过场：舞台直接呈现，点击继续后退场并显示正文', () => {
+    vi.useFakeTimers()
+    const story = makeStory()
+    story.nodes.start.stage = { backdrop: 'void', lighting: 'blackout', camera: 'wide' }
+    story.nodes.start.tags = ['cutscene']
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:stage-cutscene', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    // 过场层出现，舞台在过场层中，正文区没有常驻舞台块
+    const overlay = root.querySelector<HTMLElement>('.stage-cutscene')!
+    expect(overlay).not.toBeNull()
+    expect(overlay.querySelector('.stage-scene')).not.toBeNull()
+    expect(root.querySelector('.game-screen .stage-scene')).toBeNull()
+
+    // 点击继续：过场退场，正文可见
+    ;(overlay.querySelector<HTMLElement>('[data-action="stage-advance"]')!).click()
+    vi.advanceTimersByTime(500)
+    expect(root.querySelector('.stage-cutscene')).toBeNull()
+    expect(root.querySelector('.card-text')).not.toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('WebGL 舞台 canvas 携带无障碍 aria-label（角色名），CSS 回退共用同一文案函数', () => {
+    const story = makeStory()
+    story.characters = {
+      alice: { id: 'alice', name: '爱丽丝', description: '测试角色。' },
+    }
+    story.nodes.start.stage = {
+      backdrop: 'archive', lighting: 'spotlight',
+      actors: [{ characterId: 'alice', position: 'left', pose: 'tense', focus: true }],
+    }
+    story.nodes.start.tags = ['cutscene']
+
+    const fakeCanvas = document.createElement('canvas')
+    vi.mocked(createStage3d).mockReturnValueOnce({ canvas: fakeCanvas, dispose: vi.fn() })
+
+    const root = document.createElement('div')
+    document.body.append(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:stage3d-aria', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect(createStage3d).toHaveBeenCalled()
+    expect(fakeCanvas.getAttribute('role')).toBe('img')
+    const label = fakeCanvas.getAttribute('aria-label') ?? ''
+    expect(label).toContain('archive 布景')
+    expect(label).toContain('爱丽丝')
+
+    // 共用文案函数与 CSS 回退一致
+    expect(stageAriaLabel(story, {
+      backdrop: 'archive', lighting: 'spotlight',
+      actors: [{ characterId: 'alice', position: 'left', focus: true }],
+    })).toBe('archive 布景，spotlight 灯光，爱丽丝')
+  })
+
+  it('存档 key：优先用 meta.uid，同标题不同 uid 互不干扰；无 uid 回退标题', () => {
+    const makeVersion = (uid?: string) => {
+      const story = makeStory()
+      story.meta.title = '同名作品'
+      if (uid) story.meta.uid = uid
+      return story
+    }
+    const clickFirstChoice = (root: HTMLElement) => {
+      ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+      ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
+    }
+
+    // 无 uid：按标题 key 存档（现状兼容）
+    const legacy = memoryStorage()
+    const legacyRoot = document.createElement('div')
+    document.body.append(legacyRoot)
+    mountTextAdventure(legacyRoot, makeVersion(), { storage: legacy.storage })
+    clickFirstChoice(legacyRoot)
+    expect([...legacy.map.keys()]).toEqual(['ate:同名作品'])
+
+    // 有 uid：按 uid key 存档，两部同标题作品互不干扰
+    const a = memoryStorage()
+    const rootA = document.createElement('div')
+    document.body.append(rootA)
+    mountTextAdventure(rootA, makeVersion('uid-aaa'), { storage: a.storage })
+    clickFirstChoice(rootA)
+
+    const b = memoryStorage()
+    const rootB = document.createElement('div')
+    document.body.append(rootB)
+    mountTextAdventure(rootB, makeVersion('uid-bbb'), { storage: b.storage })
+    clickFirstChoice(rootB)
+
+    expect([...a.map.keys()]).toEqual(['ate:uid-aaa'])
+    expect([...b.map.keys()]).toEqual(['ate:uid-bbb'])
+    const { updatedAt: _a, ...savedA } = JSON.parse(a.map.get('ate:uid-aaa')!) as Record<string, unknown>
+    const { updatedAt: _b, ...savedB } = JSON.parse(b.map.get('ate:uid-bbb')!) as Record<string, unknown>
+    expect(savedA).toEqual(savedB) // 同一进度存档内容（忽略 updatedAt 时间戳差异）
   })
 
   it('宿主可显式销毁实例并清空持续运行资源', async () => {
@@ -175,6 +288,73 @@ describe('mountTextAdventure 运行时集成', () => {
     }
   })
 
+  it('选项出现动画：默认依次淡入，节点可覆盖为 slide 或 none', () => {
+    const story = makeStory()
+    story.nodes.armed.presentation = { choiceReveal: 'slide' }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:choice-reveal', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    // 默认 fade，并带逐项动画延迟变量
+    let screen = root.querySelector<HTMLElement>('.game-screen')!
+    expect(screen.classList.contains('choice-reveal-fade')).toBe(true)
+    let buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
+    expect(buttons[0].getAttribute('style')).toContain('--choice-i:0')
+    expect(buttons[1].getAttribute('style')).toContain('--choice-i:1')
+
+    // 节点覆盖为 slide
+    buttons[0].click()
+    screen = root.querySelector<HTMLElement>('.game-screen')!
+    expect(screen.classList.contains('choice-reveal-slide')).toBe(true)
+  })
+
+  it('正文逐字输出：typewriter 逐字推进，点击正文立即补全', () => {
+    vi.useFakeTimers()
+    const story = makeStory()
+    story.meta.presentation = { textReveal: 'typewriter' }
+    story.nodes.start.text = '开场测试文本'
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:typewriter', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const screen = root.querySelector<HTMLElement>('.game-screen')!
+    expect(screen.classList.contains('text-reveal-typewriter')).toBe(true)
+    const textEl = root.querySelector<HTMLElement>('.card-text')!
+    expect(textEl.dataset.textReveal).toBe('typewriter')
+    expect(textEl.textContent).toBe('')
+    expect(textEl.classList.contains('text-typing')).toBe(true)
+
+    vi.advanceTimersByTime(24)
+    expect(textEl.textContent).toBe('开')
+
+    // 点击正文立即补全
+    textEl.click()
+    expect(textEl.textContent).toBe('开场测试文本')
+    expect(textEl.classList.contains('text-typing')).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('仿终端正文：textReveal=terminal 应用终端样式类并可点击补全', () => {
+    const story = makeStory()
+    story.meta.presentation = { textReveal: 'terminal' }
+    story.nodes.start.text = 'SIGNAL LOST'
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:terminal', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    expect(root.querySelector<HTMLElement>('.game-screen')!.classList.contains('text-reveal-terminal')).toBe(true)
+    const textEl = root.querySelector<HTMLElement>('.card-text')!
+    expect(textEl.dataset.textReveal).toBe('terminal')
+    textEl.click()
+    expect(textEl.textContent).toBe('SIGNAL LOST')
+  })
+
   it('状态切换同步改变主题、视觉配方与 DOM 状态标记', () => {
     const story = makeStory()
     story.meta.world = {
@@ -220,6 +400,88 @@ describe('mountTextAdventure 运行时集成', () => {
       expect(root.querySelector('.game-screen')!.classList.contains(`shell-${shell}`)).toBe(true)
     },
   )
+
+  it('新闻站首页组合与 choice.card：composition 槽位、媒体位、徽章与摘要', () => {
+    const story = makeStory()
+    story.meta.site = { kind: 'news', name: '测试日报', persona: 'tabloid', locale: '测试市' }
+    story.nodes.start.page = { layout: 'frontpage', composition: 'lead-grid-sidebar', headline: '今日要闻' }
+    story.nodes.start.choices = [
+      { label: '头条新闻', target: 'armed', card: { slot: 'lead', summary: '头条摘要。', media: 'photo', badge: '独家' } },
+      { label: '第二条', target: 'unarmed', card: { media: 'chart' } },
+      { label: '第三条', target: 'unarmed', card: { slot: 'sidebar', summary: '侧栏摘要。' } },
+    ]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:news-composition', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const screen = root.querySelector<HTMLElement>('.game-screen')!
+    expect(screen.classList.contains('site-news-tabloid')).toBe(true)
+    expect(screen.dataset.pageLayout).toBe('frontpage')
+    expect(screen.dataset.pageComposition).toBe('lead-grid-sidebar')
+
+    const lead = root.querySelector<HTMLElement>('.choice-slot-lead')!
+    expect(lead.textContent).toContain('头条新闻')
+    expect(lead.querySelector('.choice-media.media-photo')).not.toBeNull()
+    expect(lead.querySelector('.choice-badge')?.textContent).toBe('独家')
+    expect(lead.querySelector('.choice-summary')?.textContent).toBe('头条摘要。')
+    expect(root.querySelector('.choice-slot-grid .choice-media.media-chart')).not.toBeNull()
+    expect(root.querySelector('.choice-slot-sidebar')?.textContent).toContain('侧栏摘要。')
+  })
+
+  it('forum 外壳渲染版块行，persona 与 choice.card 元数据生效', () => {
+    const story = makeStory()
+    story.meta.site = { kind: 'forum', name: '汐见町论坛', tagline: '本地消息', persona: 'terminal' }
+    story.nodes.start.page = { layout: 'board', headline: '生活版' }
+    story.nodes.start.choices = [
+      { label: '置顶：停水通知', target: 'armed', card: { badge: '置顶', summary: '今晚十点停水。' } },
+      { label: '二手：旧收音机', target: 'unarmed', card: { summary: '九成新，可议价。' } },
+    ]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:forum-shell', storage })
+    expect(root.querySelector('[data-action="start"]')?.textContent).toBe('进入版块')
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const screen = root.querySelector<HTMLElement>('.game-screen')!
+    expect(screen.classList.contains('site-forum')).toBe(true)
+    expect(screen.classList.contains('site-forum-terminal')).toBe(true)
+    expect(screen.dataset.pageLayout).toBe('board')
+    const row = root.querySelector<HTMLElement>('.forum-row')!
+    expect(row.textContent).toContain('置顶：停水通知')
+    expect(row.querySelector('.choice-badge')?.textContent).toBe('置顶')
+    expect(row.querySelector('.choice-summary')?.textContent).toBe('今晚十点停水。')
+  })
+
+  it('blog 与 mail 外壳使用各自标题按钮与列表行', () => {
+    const blogStory = makeStory()
+    blogStory.meta.site = { kind: 'blog', name: '闻舟的博客', persona: 'diary' }
+    blogStory.nodes.start.page = { layout: 'index', headline: '最近文章' }
+    blogStory.nodes.start.choices = [{ label: '第一篇', target: 'armed', card: { summary: '文章摘要。' } }]
+    const blogRoot = document.createElement('div')
+    document.body.appendChild(blogRoot)
+    const { storage: blogStorage } = memoryStorage()
+    mountTextAdventure(blogRoot, blogStory, { saveKey: 'test:blog-shell', storage: blogStorage })
+    expect(blogRoot.querySelector('[data-action="start"]')?.textContent).toBe('进入博客')
+    ;(blogRoot.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(blogRoot.querySelector<HTMLElement>('.game-screen')?.classList.contains('site-blog-diary')).toBe(true)
+    expect(blogRoot.querySelector('.blog-card')?.textContent).toContain('文章摘要。')
+
+    const mailStory = makeStory()
+    mailStory.meta.site = { kind: 'mail', name: '临时邮箱', persona: 'plain' }
+    mailStory.nodes.start.page = { layout: 'inbox', headline: '收件箱' }
+    mailStory.nodes.start.choices = [{ label: '未读：明晚见', target: 'armed', card: { badge: '未读', summary: '别迟到。' } }]
+    const mailRoot = document.createElement('div')
+    document.body.appendChild(mailRoot)
+    const { storage: mailStorage } = memoryStorage()
+    mountTextAdventure(mailRoot, mailStory, { saveKey: 'test:mail-shell', storage: mailStorage })
+    expect(mailRoot.querySelector('[data-action="start"]')?.textContent).toBe('打开收件箱')
+    ;(mailRoot.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+    expect(mailRoot.querySelector<HTMLElement>('.game-screen')?.classList.contains('site-mail-plain')).toBe(true)
+    expect(mailRoot.querySelector('.mail-row')?.textContent).toContain('未读：明晚见')
+  })
 
   it('新闻站外壳使用结构化站点与页面语义，导航仍复用剧情 choice', () => {
     const story = makeStory()
@@ -278,10 +540,12 @@ describe('mountTextAdventure 运行时集成', () => {
     let btns = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
     expect(btns.map((b) => b.textContent)).toEqual(['拿剑', '空手'])
 
-    // 拿剑 → armed：onEnter courage+3=8，道具栏显示
+    // 拿剑 → armed：onEnter courage+3=8，道具收纳进手册
     btns[0].click()
     expect(root.querySelector('.card-text')?.textContent).toContain('你有剑')
-    expect(root.querySelectorAll('.inv-chip').length).toBe(1)
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
+    expect(root.querySelectorAll('.handbook-inventory .inv-chip').length).toBe(1)
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
 
     // 条件选项：courage=8 满足战斗条件
     btns = [...root.querySelectorAll<HTMLButtonElement>('[data-choice]')]
@@ -333,7 +597,9 @@ describe('mountTextAdventure 运行时集成', () => {
     expect(root.querySelector<HTMLButtonElement>('[data-action="continue"]')).not.toBeNull()
     ;(root.querySelector('[data-action="continue"]') as HTMLButtonElement).click()
     expect(root.querySelector('.card-text')?.textContent).toContain('你有剑')
-    expect(root.querySelectorAll('.inv-chip').length).toBe(1)
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
+    expect(root.querySelectorAll('.handbook-inventory .inv-chip').length).toBe(1)
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
   })
 
   it('结局后「再来一次」回到起点，「返回标题」回标题屏', () => {
@@ -358,7 +624,8 @@ describe('mountTextAdventure 运行时集成', () => {
     expect(root.querySelector('.title-main')?.textContent).toBe('测试剧情')
   })
 
-  it('meta.hud 配置后显示统计条，数值随变量变化', () => {    const story = makeStory()
+  it('meta.hud 配置后统计条收纳进手册，数值随变量变化', () => {
+    const story = makeStory()
     story.meta.hud = [{ var: 'courage', label: '勇气', max: 10 }]
     const root = document.createElement('div')
     document.body.appendChild(root)
@@ -366,12 +633,18 @@ describe('mountTextAdventure 运行时集成', () => {
 
     mountTextAdventure(root, story, { saveKey: 'test:hud', storage })
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
-    // 开局未设 courage → 显示 0 / 10
+    // 主页面不再显示 HUD
+    expect(root.querySelector('.hud')).toBeNull()
+
+    // 打开手册看到 HUD：开局未设 courage → 0 / 10
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
     expect(root.querySelector('.hud-label')?.textContent).toBe('勇气')
     expect(root.querySelector('.hud-value')?.textContent).toBe('0 / 10')
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
 
-    // 空手：courage=1
+    // 空手：courage=1 → 再开手册查看
     ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click()
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
     expect(root.querySelector('.hud-value')?.textContent).toBe('1 / 10')
     expect(root.querySelector<HTMLElement>('.hud-fill')?.style.width).toBe('10%')
 
@@ -518,24 +791,24 @@ describe('文本块与线索夹', () => {
     expect(root.querySelector('.segment-redacted')).toBeNull()
   })
 
-  it('获得线索后出现入口，可打开线索夹查看详情并返回', () => {
+  it('获得线索后出现手册入口，可打开线索夹查看详情并返回', () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
     const { storage } = memoryStorage()
     mountTextAdventure(root, makeDocStory(), { saveKey: 'test:docs', storage })
 
-    // 开始游戏前无线索按钮
+    // 开始游戏前无手册按钮
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
-    expect(root.querySelector('[data-action="docs"]')).toBeNull()
+    expect(root.querySelector('[data-action="handbook"]')).toBeNull()
 
-    // 捡守则 → 线索按钮出现
+    // 捡守则 → 手册按钮出现
     ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
-    const docsBtn = root.querySelector<HTMLButtonElement>('[data-action="docs"]')
-    expect(docsBtn).not.toBeNull()
-    expect(docsBtn?.textContent).toContain('线索 1')
+    const handbookBtn = root.querySelector<HTMLButtonElement>('[data-action="handbook"]')
+    expect(handbookBtn).not.toBeNull()
 
-    // 打开线索夹
-    docsBtn!.click()
+    // 打开手册 → 进入线索夹
+    handbookBtn!.click()
+    ;(root.querySelector<HTMLElement>('[data-handbook-entry="docs"]')!).click()
     expect(root.querySelector('.doc-item')?.textContent).toContain('游客守则')
     expect(root.querySelector('.doc-kind')?.textContent).toBe('守则')
 
@@ -544,21 +817,43 @@ describe('文本块与线索夹', () => {
     expect(root.querySelector('.block-head')?.textContent).toBe('游客守则')
     expect(root.querySelector('.block-body')?.textContent).toContain('兔子不会发出笑声')
 
-    // 返回列表 → 返回游戏
+    // 返回列表 → 返回手册 → 关闭抽屉回到故事
     ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
     expect(root.querySelector('.doc-item')).not.toBeNull()
     ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    expect(root.querySelector('[data-action="handbook-close"]')).not.toBeNull()
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
+    expect(root.querySelector('.handbook-overlay')).toBeNull()
     expect(root.querySelector('.choice-btn')).not.toBeNull()
   })
 
-  it('无文档剧情不显示线索入口', () => {
+  it('无文档无物品剧情不显示手册入口', () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
     const { storage } = memoryStorage()
     mountTextAdventure(root, makeStory(), { saveKey: 'test:nodocs', storage })
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
-    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[0]).click()
-    expect(root.querySelector('[data-action="docs"]')).toBeNull()
+    ;(root.querySelectorAll<HTMLButtonElement>('[data-choice]')[1]).click() // 空手路线不获得物品
+    expect(root.querySelector('[data-action="handbook"]')).toBeNull()
+  })
+
+  it('spotlight 光锥：注入压暗强度，sway/flicker 组合生效且周期随 speed 缩放', () => {
+    const story = makeStory()
+    story.nodes.start.fx = [{ name: 'spotlight', intensity: 0.5, speed: 2, sway: true, flicker: true }]
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:spotlight', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    const card = root.querySelector<HTMLElement>('.card')!
+    expect(card.className).toContain('fx-spotlight')
+    expect(card.className).toContain('fx-spotlight-sway')
+    expect(card.className).toContain('fx-spotlight-flicker')
+    const style = card.getAttribute('style') ?? ''
+    expect(style).toContain('--fx-spotlight-dim: 0.20')
+    expect(style).toContain('--fx-spotlight-sway-dur: 1.700s')
+    expect(style).toContain('--fx-spotlight-flicker-dur: 0.550s')
   })
 
   it('unstable 不稳定灯：随机间隔触发连闪爆发后移除', () => {
@@ -668,21 +963,53 @@ describe('证据推理板', () => {
     ;(root.querySelector('[data-action="dismiss-tutorial"]') as HTMLButtonElement).click()
     expect(root.querySelector('[data-tutorial="deduction"]')).toBeNull()
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).not.toContain('揭穿管家')
-    const deductionAction = root.querySelector<HTMLElement>('[data-deduction-choice]')
-    expect(deductionAction?.textContent).toContain('整理线索并推理')
-    deductionAction!.click()
+    // 推理入口收纳进悬浮手册
+    ;(root.querySelector<HTMLElement>('[data-action="handbook"]')!).click()
+    ;(root.querySelector<HTMLElement>('[data-handbook-entry="evidence"]')!).click()
     expect(root.querySelectorAll('[data-evidence]').length).toBe(2)
     expect(root.querySelector('[data-deduction="false_alibi"]')?.textContent).toContain('管家的不在场证明不成立')
     expect(root.querySelector('.deduction-guide')?.textContent).toContain('勾选支持它的证据')
-    expect(root.querySelector('[data-deduction-progress="false_alibi"]')?.textContent).toContain('必需证据 2/2')
-    expect(root.querySelector('[data-deduction-hint="false_alibi"]')?.textContent).toContain('继续调查时钟')
+    expect(root.querySelector('[data-deduction-progress="false_alibi"]')?.textContent).toContain('关键证据 2/2')
+    expect(root.querySelector('[data-deduction-hint="false_alibi"]')).toBeNull()
 
     root.querySelectorAll<HTMLInputElement>('[data-evidence]').forEach((input) => input.click())
     ;(root.querySelector('[data-action="confirm-deduction"]') as HTMLButtonElement).click()
     expect(root.querySelector('[data-deduction-result]')?.textContent).toContain('推论成立')
 
-    ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    ;(root.querySelector<HTMLElement>('[data-action="handbook-close"]')!).click()
     expect([...root.querySelectorAll('.choice-btn')].map((el) => el.textContent)).toContain('揭穿管家')
+  })
+
+  it('证据不足时不显示推论结论文本，点击「调查方向」才显示提示', () => {
+    const story = makeStory()
+    story.evidence = {
+      clock: { id: 'clock', title: '停住的时钟', description: '停在 22:10。', kind: 'observation' },
+      testimony: { id: 'testimony', title: '女仆证词', description: '管家 22:20 才回来。', kind: 'testimony' },
+    }
+    story.deductions = {
+      false_alibi: {
+        id: 'false_alibi',
+        statement: '管家的不在场证明不成立',
+        hint: '去厨房附近寻找更多痕迹。',
+        requires: { all: ['clock', 'testimony'] },
+      },
+    }
+    story.nodes.start.onEnter = { gainEvidence: ['clock'] }
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const { storage } = memoryStorage()
+    mountTextAdventure(root, story, { saveKey: 'test:deduction-spoiler', storage })
+    ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
+
+    ;(root.querySelector<HTMLElement>('[data-action="open-evidence"]')!).click()
+    const deduction = root.querySelector<HTMLElement>('[data-deduction="false_alibi"]')!
+    expect(deduction.textContent).toContain('尚未成型的推论')
+    expect(deduction.textContent).not.toContain('不在场证明不成立')
+    expect(deduction.querySelector('[data-deduction-progress]')?.textContent).toContain('关键证据 1/2')
+    expect(deduction.querySelector('[data-deduction-hint="false_alibi"]')).toBeNull()
+
+    ;(deduction.querySelector<HTMLButtonElement>('[data-deduction-hint-btn]')!).click()
+    expect(root.querySelector('[data-deduction-hint="false_alibi"]')?.textContent).toContain('去厨房附近寻找更多痕迹')
   })
 
   it('获得新证据时明确提示已加入推理板，首次教学状态随存档恢复', () => {
@@ -740,19 +1067,23 @@ describe('人物关系页', () => {
     mountTextAdventure(root, story, { saveKey: 'test:characters', storage })
     ;(root.querySelector('[data-action="start"]') as HTMLButtonElement).click()
 
-    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
+    ;(root.querySelector<HTMLElement>('[data-handbook-entry="characters"]')!).click()
     expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('林夏')
     expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 0')
     expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('未知秘密')
     ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
 
     ;(root.querySelector('[data-choice]') as HTMLButtonElement).click()
     expect(root.querySelector('.ending-title')).not.toBeNull()
-    ;(root.querySelector('[data-action="characters"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="handbook"]') as HTMLButtonElement).click()
+    ;(root.querySelector<HTMLElement>('[data-handbook-entry="characters"]')!).click()
     expect(root.querySelector('[data-character="maid"]')?.textContent).toContain('信任 2')
     expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('隐藏走廊')
     expect(root.querySelector('[data-secret="maid:corridor"]')?.textContent).toContain('她看见管家进入隐藏走廊')
     ;(root.querySelector('[data-action="back"]') as HTMLButtonElement).click()
+    ;(root.querySelector('[data-action="handbook-close"]') as HTMLButtonElement).click()
     expect(root.querySelector('.ending-title')).not.toBeNull()
   })
 })
