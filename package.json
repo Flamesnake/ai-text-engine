@@ -1,6 +1,6 @@
 {
   "name": "@marianaj/talespindle",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Agent-first interactive narrative engine with MCP tools, validation, and single-file HTML export",
   "license": "MIT",
