@@ -89,6 +89,21 @@ describe('证据与推论', () => {
     expect(game.state.vars.insight).toBe(1)
   })
 
+  it('多选无关证据不能通过：勾选必须恰好等于支持该推论的证据', () => {
+    const story = makeDeductionStory()
+    story.evidence!.decoy = {
+      id: 'decoy',
+      title: '无关的指纹',
+      description: '一枚与案件无关的指纹。',
+      kind: 'observation',
+    }
+    story.nodes.start.onEnter = { gainEvidence: ['stopped_clock', 'maid_testimony', 'decoy'] }
+    const game = new Game(story)
+
+    expect(game.confirmDeduction('false_alibi', ['stopped_clock', 'maid_testimony', 'decoy'])).toBe(false)
+    expect(game.confirmDeduction('false_alibi', ['stopped_clock', 'maid_testimony'])).toBe(true)
+  })
+
   it('校验无效证据引用与没有要求的推论', () => {
     const story = makeDeductionStory()
     story.nodes.start.onEnter = { gainEvidence: ['ghost'] }

@@ -7,9 +7,12 @@ import { makeStory } from './fixtures.js'
 import { SiteConfigSchema } from './schema.js'
 
 describe('validate 静态校验', () => {
-  it('拟态站点契约只接受受控新闻站字段', () => {
+  it('拟态站点契约只接受受控字段，persona 必须匹配 kind', () => {
     expect(SiteConfigSchema.safeParse({ kind: 'news', name: '测试日报' }).success).toBe(true)
-    expect(SiteConfigSchema.safeParse({ kind: 'forum', name: '测试论坛' }).success).toBe(false)
+    expect(SiteConfigSchema.safeParse({ kind: 'forum', name: '测试论坛' }).success).toBe(true)
+    expect(SiteConfigSchema.safeParse({ kind: 'blog', name: '测试博客', persona: 'diary' }).success).toBe(true)
+    expect(SiteConfigSchema.safeParse({ kind: 'mail', name: '测试邮箱', persona: 'client' }).success).toBe(true)
+    expect(SiteConfigSchema.safeParse({ kind: 'news', name: '测试日报', persona: 'terminal' }).success).toBe(false)
     expect(SiteConfigSchema.safeParse({ kind: 'news', name: '测试日报', loginForm: true }).success).toBe(false)
   })
 
@@ -111,6 +114,16 @@ describe('validate 静态校验', () => {
 })
 
 describe('validateExperience 非阻断体验校验', () => {
+  it('使用 stage 的非结局节点需要 cutscene/setpiece 标签', () => {
+    const story = makeStory()
+    story.nodes.armed.stage = { lighting: 'warm' }
+    const warnings = validateExperience(story).join('\n')
+    expect(warnings).toContain('节点 "armed" 使用舞台 cue 但 tags 未标记 cutscene 或 setpiece')
+
+    story.nodes.armed.tags = ['cutscene']
+    expect(validateExperience(story).join('\n')).not.toContain('节点 "armed" 使用舞台 cue')
+  })
+
   it('提示把舞台用于过多普通节点以及空拟态站点', () => {
     const story = makeStory()
     story.meta.site = { kind: 'news', name: '测试日报' }

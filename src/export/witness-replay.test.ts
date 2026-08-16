@@ -104,7 +104,7 @@ describe('replayWitnessInDom', () => {
     expect(report).toMatchObject({ kind: 'soft_lock', nodeId: 'locked', choices: 1 })
     expect(root.querySelectorAll('.choice-btn')).toHaveLength(0)
     expect(root.querySelector('[data-ending-id]')).toBeNull()
-    expect(root.querySelector('[data-deduction-choice]')).not.toBeNull()
+    expect(root.querySelector('[data-action="handbook"]')).not.toBeNull()
   })
 })
 

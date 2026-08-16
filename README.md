@@ -112,9 +112,9 @@ node scripts/verify-integrated-mystery.mjs  # 实际操作运行时，验收完�
 第一轮 Agent 泛化盲测题见 `docs/evals/blind-prompts.md`；隐藏评分表见 `docs/evals/evaluation-rubric.md`。生成 Agent 只能看到题目，不能看到评分表。
 
 产品核心的近期与远期路线、阶段依赖、暂不做事项和质量门槛见
-[`docs/product-roadmap.md`](docs/product-roadmap.md)。当前正在完成首个“插件就绪”版本：质量闭环、严格声画契约、
+[`docs/dev/product-roadmap.md`](docs/dev/product-roadmap.md)。当前正在完成首个“插件就绪”版本：质量闭环、严格声画契约、
 受控富文本、部署诊断与版本发布；叙事声景、世界状态、拟态网页、受控空间和 Meta 叙事不作为首个插件前置条件。
-插件封装边界和发布清单见 [`docs/plugin-readiness.md`](docs/plugin-readiness.md)。
+插件封装边界和发布清单见 [`docs/dev/plugin-readiness.md`](docs/dev/plugin-readiness.md)。
 文字、媒介、空间与远期 3D 能力的产品边界见
 [`docs/narrative-freedom.md`](docs/narrative-freedom.md)：所有自由度必须服务文字冒险体验，并保持结构化、可校验和可降级。
 

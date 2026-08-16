@@ -398,6 +398,16 @@ export function validateExperience(story: Story): string[] {
     warnings.push('meta.site 已启用拟态网站，但没有节点声明 page 页面语义；至少为入口与关键页面设置 layout/headline')
   }
   for (const node of Object.values(story.nodes)) {
+    if (!node.stage || node.stage === 'clear' || node.ending) continue
+    const tagged = node.tags?.includes('cutscene') || node.tags?.includes('setpiece')
+    if (!tagged) {
+      warnings.push(
+        `节点 "${node.id}" 使用舞台 cue 但 tags 未标记 cutscene 或 setpiece；` +
+        'stage 只用于特殊剧情与过场动画，普通场景请撤台并使用文字界面',
+      )
+    }
+  }
+  for (const node of Object.values(story.nodes)) {
     if (node.choices.length >= 4 && !node.objective?.trim()) {
       warnings.push(`节点 "${node.id}" 有 ${node.choices.length} 个可选行动但没有 objective，玩家可能不清楚当前目标`)
     }

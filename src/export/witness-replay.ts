@@ -138,17 +138,16 @@ function finishFailureReplay(
   }
   const choices = root.querySelectorAll('[data-choice-target]').length
   const puzzles = root.querySelectorAll('[data-puzzle-choice]').length
-  const deductionEntry = root.querySelector<HTMLElement>('[data-deduction-choice], [data-action="evidence-board"]')
-  if (deductionEntry) {
-    deductionEntry.click()
+  if (root.querySelector('[data-action="handbook"]') || root.querySelector('[data-action="open-evidence"]')) {
+    openEvidenceBoardForReplay(root, witness, witness.actions.length, undefined)
     const confirmable = [...root.querySelectorAll<HTMLElement>('[data-deduction-can-confirm="true"]')]
       .some((element) => !element.classList.contains('deduction-confirmed'))
     if (confirmable) {
       fail(root, witness, witness.actions.length, undefined, '页面仍存在可以确认并推进状态的推论')
     }
-    const back = root.querySelector<HTMLElement>('[data-action="back"]')
-    if (!back) fail(root, witness, witness.actions.length, undefined, '检查推理板后找不到返回按钮')
-    back.click()
+    const close = root.querySelector<HTMLElement>('[data-action="handbook-close"]')
+    if (!close) fail(root, witness, witness.actions.length, undefined, '检查推理板后找不到关闭按钮')
+    close.click()
   }
   if (choices > 0 || puzzles > 0) {
     fail(root, witness, witness.actions.length, undefined, '页面仍存在可推进的选项、谜题或推理行动')
@@ -170,6 +169,7 @@ function prepareReplay(
   const start = root.querySelector<HTMLElement>('[data-action="start"]')
   if (!start) fail(root, witness, -1, undefined, '找不到开始游戏按钮')
   start.click()
+  dismissStageCutscene(root)
   return mounted
 }
 
@@ -195,18 +195,29 @@ function replayActionsInDom(
     if (action.type === 'deduction') {
       replayDeduction(root, witness, actionIndex, action)
       report.deductions++
+      dismissStageCutscene(root)
       continue
     }
     if (action.type === 'puzzle') {
       replayPuzzle(root, story, witness, actionIndex, action)
       report.puzzles++
+      dismissStageCutscene(root)
       continue
     }
     replayChoice(root, witness, actionIndex, action)
     report.choices++
+    dismissStageCutscene(root)
   }
 
   return report
+}
+
+/** 舞台过场会遮住正文与选项，重放时点击推进并移除过场层。 */
+function dismissStageCutscene(root: HTMLElement): void {
+  const overlay = root.querySelector<HTMLElement>('.stage-cutscene')
+  if (!overlay) return
+  overlay.querySelector<HTMLElement>('[data-action="stage-advance"]')?.click()
+  root.querySelector('.stage-cutscene')?.remove()
 }
 
 function replayChoice(
@@ -228,9 +239,7 @@ function replayDeduction(
   actionIndex: number,
   action: Extract<WalkAction, { type: 'deduction' }>,
 ): void {
-  const board = root.querySelector<HTMLElement>('[data-deduction-choice], [data-action="evidence-board"]')
-  if (!board) fail(root, witness, actionIndex, action, `找不到推理板入口以确认 ${action.deductionId}`)
-  board.click()
+  openEvidenceBoardForReplay(root, witness, actionIndex, action)
 
   const radio = [...root.querySelectorAll<HTMLInputElement>('input[name="deduction"]')]
     .find((input) => input.value === action.deductionId)
@@ -252,9 +261,29 @@ function replayDeduction(
   if (!confirmed?.classList.contains('deduction-confirmed')) {
     fail(root, witness, actionIndex, action, `推论 ${action.deductionId} 未成立`)
   }
-  const back = root.querySelector<HTMLElement>('[data-action="back"]')
-  if (!back) fail(root, witness, actionIndex, action, '推论成立后找不到返回按钮')
-  back.click()
+  const close = root.querySelector<HTMLElement>('[data-action="handbook-close"]')
+  if (!close) fail(root, witness, actionIndex, action, '推论成立后找不到关闭按钮')
+  close.click()
+}
+
+/** 打开推理板：优先新证据提示里的直达按钮，否则通过悬浮手册进入推理板。 */
+function openEvidenceBoardForReplay(
+  root: HTMLElement,
+  witness: ReplayableWitness,
+  actionIndex: number,
+  action: WalkAction | undefined,
+): void {
+  const direct = root.querySelector<HTMLElement>('[data-action="open-evidence"]')
+  if (direct) {
+    direct.click()
+    return
+  }
+  const handbook = root.querySelector<HTMLElement>('[data-action="handbook"]')
+  if (!handbook) fail(root, witness, actionIndex, action, '找不到调查手册入口以打开推理板')
+  handbook.click()
+  const evidenceEntry = root.querySelector<HTMLElement>('[data-handbook-entry="evidence"]')
+  if (!evidenceEntry) fail(root, witness, actionIndex, action, '手册中没有推理板入口')
+  evidenceEntry.click()
 }
 
 function replayPuzzle(

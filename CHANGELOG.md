@@ -9,11 +9,17 @@
 
 - GitHub 仓库由 `Flamesnake/ai-text-engine` 更名为 `Flamesnake/talespindle`，并更新 npm repository、homepage、bugs 与源码路径示例；旧 GitHub URL 由 GitHub 自动重定向。
 - `story_validate`、`story_walk` 与 `story_evaluate` 新增 `compact:true`：反复修订时保留可达性、覆盖、失败、预算和热点结论，但用动作数量代替完整见证动作数组，最终 DOM 重放前再请求完整输出。
+- **存档健壮性**：存档新增 `saveVersion` 版本字段（缺省按 v1 恢复，未知版本显式报错并预留迁移钩子）；`Game.state` 改为返回浅拷贝，封装内部状态；导出作品存档 key 改用 `meta.uid`（`story_new` 自动生成），避免 `file://` 下同标题作品互相覆盖；MCP 冲突检测缓存改为 LRU（上限 20 条），长会话不再无界增长。
+- **导出成本与护栏**：无舞台作品自动选用 lite runtime bundle（不背 three.js，导出体积从 ~600KB 降到 ~60KB）；预构建 bundle 头部注入构建时间戳与源码 mtime，改过 `src/export` 忘记 build 时导出给出过期警告；MCP 大结果改为紧凑序列化，小结果保持 pretty，节省 token。
+- **CLI 补齐**：新增 `talespindle export <title>` 与 `talespindle validate <title>`（薄封装 MCP handler，供 CI/非 Agent 用户）；`version` 改为毫秒级直读，不再跑全套 doctor。
+- **架构拆分**：`runtime.ts` 单体闭包按域拆为 `runtime/{typewriter,stage,handbook,site}.ts`（对外 `mountTextAdventure` 签名不变）；MCP 工具按域拆为 `handlers/{nodes,characters,evidence,meta}.ts`，描述 + schema + handler 同址注册，`server.ts` 缩减为注册循环；模板样式抽为独立 `template.css` 构建期注入；舞台调色收敛到 `stage-palette.ts` 单一色源（CSS 回退与 3D 共用）。
+- **体验打磨**：持续声景的滤波频率与增益挂慢速 LFO（0.05–0.2Hz），长听不再「平」；`story_walk` 见证搜索返回耗时观测；3D 舞台 canvas 补齐 `role="img"` 无障碍文案，合成画布声明 `willReadFrequently`；CI 增加 `check:package` 发布护栏；npm 包文档白名单补入 deduction/puzzles/relationships 三篇 MVP 文档，内部稿（roadmap/plugin-readiness/优化清单）移入 `docs/dev/`。
 
 ### 新增
 
 - **新闻拟态网页纵向切片**：新增全局 `meta.site` 新闻站身份与节点 `page` 页面语义，支持 frontpage/article/bulletin 三种信息布局；标题屏、站点页眉、文章层级和选项导航会呈现为离线新闻站，但所有行动仍复用 choices、条件、效果、存档与 walk。配置集中、节点只写差异，避免重复页框和 token 浪费。
 - **受控舞台调度 MVP**：节点可用短枚举声明程序化布景、灯光、镜头和最多三名角色的站位、姿态、焦点与短促入场；配置沿历史持续并支持差异覆盖与 `clear`，结局和存档可恢复。schema/validate 拒绝未知表现与冲突站位，evaluate 统计舞台使用并提示重复完整 cue，减弱动态模式提供静态回退。
+- **3D 舞台渲染升级**：WebGL 路径改为卡门式低分辨率合成管线——15bit 色彩量化 + Bayer 4x4 有序抖动、暗角、镜头黑边、警报边缘光与开场淡入；剧场灯光组（环境/半球/顶排洗光/侧逆光/脚灯/跟随焦点角色的追光与可见光柱）；wide/medium/close/push 镜头 DSL 与手持呼吸；八种姿态演出（倾斜/转向/蹲伏/头部下垂/微颤）与呼吸；按背景自动选择的空气粒子（尘埃/雪/余烬/雾/火花）。场景图构建与 renderer 解耦，无 WebGL 环境也可结构测试；过场退场主动 `forceContextLoss` 防止上下文耗尽。
 - 转场审查与作品评估会标记 `response` 机械重复目标节点开头；`onlyRisks:true` 可优先返回这类边。评估摘要补充成就数量，交付报告无需手工统计。
 
 ### 修复

@@ -127,6 +127,11 @@ describe('story_upsert_node / delete_node', () => {
     })).rejects.toThrow(/speed/)
     await expect(handlers.upsertNode({
       title: '测试游戏', node: {
+        ...base, fx: [{ name: 'shake', sway: true }],
+      } as unknown as StoryNode,
+    })).rejects.toThrow(/sway/)
+    await expect(handlers.upsertNode({
+      title: '测试游戏', node: {
         ...base, soundscape: { name: 'custom_mp3', intensity: 'medium' },
       } as unknown as StoryNode,
     })).rejects.toThrow(/soundscape|custom_mp3/)
