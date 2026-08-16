@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Game } from './engine.js'
+import { Game, SAVE_VERSION } from './engine.js'
 import { applyEffects } from './effects.js'
 import { evalCondition } from './conditions.js'
 import { makeStory } from './fixtures.js'
@@ -198,6 +198,41 @@ describe('effects / conditions 直接单测', () => {
     expect(restored.state).toMatchObject({ world: 'other', phase: 'night' })
     restored.restart()
     expect(restored.state).toMatchObject({ world: 'surface', phase: 'day' })
+  })
+
+  it('存档版本：toSave 写入当前版本，缺省按 v1 恢复，未知版本显式报错', () => {
+    const g = new Game(makeStory())
+    g.choose(0)
+    const save = g.toSave()
+    expect(save.saveVersion).toBe(SAVE_VERSION)
+
+    // 旧档没有 saveVersion 字段 → 按 v1 恢复
+    const legacy = { ...save }
+    delete legacy.saveVersion
+    const restored = new Game(makeStory(), legacy)
+    expect(restored.state.inventory).toEqual(['剑'])
+
+    // 未知（未来）版本 → 报错并带「版本」字样
+    expect(() => new Game(makeStory(), { ...save, saveVersion: 999 })).toThrow(/版本/)
+    // 非整数/非正数同样拒绝
+    expect(() => new Game(makeStory(), { ...save, saveVersion: 0 })).toThrow(/版本/)
+    expect(() => new Game(makeStory(), { ...save, saveVersion: 1.5 })).toThrow(/版本/)
+  })
+
+  it('state getter 返回浅拷贝：外部修改数组/对象不影响内部状态', () => {
+    const g = new Game(makeStory())
+    g.choose(0)
+    const snap = g.state
+    snap.inventory.push('赃物')
+    snap.vars.courage = 999
+    snap.history.push('伪造')
+    const rel = snap.relations
+    if (rel) rel.alice = { trust: -100 }
+
+    expect(g.state.inventory).toEqual(['剑'])
+    expect(g.state.vars.courage).toBe(8)
+    expect(g.state.history).toEqual(['start', 'armed'])
+    expect(g.state.relations?.alice).toBeUndefined()
   })
 
   it('集合型特殊变量同时支持 eq/ne 与 has/not_has', () => {

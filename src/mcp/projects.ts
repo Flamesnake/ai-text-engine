@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import type { Story } from '../core/types.js'
 import { parseStory, SCHEMA_VERSION, StorySchemaError } from '../core/schema.js'
 import { safeName } from '../export/exporter.js'
+import { LruCache } from './lru-cache.js'
 
 /**
  * 项目存储深模块：一切磁盘细节（目录命名、原子写入、错误区分、并发冲突）集中于此。
@@ -139,6 +140,16 @@ async function freshDirFor(title: string): Promise<string> {
 
 /* ------------------------------ 读写 ------------------------------ */
 
+/** 短随机 uid：作品稳定标识（存档 key 用），浏览器/Node 18+ 均可用。 */
+export function generateUid(): string {
+  const c = globalThis.crypto
+  if (c && typeof c.randomUUID === 'function') {
+    return c.randomUUID().replaceAll('-', '').slice(0, 12)
+  }
+  // 极老环境回退：时间戳 + 随机数，仍保证同进程内几乎唯一。
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+}
+
 /** 新项目骨架：start 节点 + 一个示例结局 */
 export function createSkeletonStory(meta: {
   title: string
@@ -148,6 +159,7 @@ export function createSkeletonStory(meta: {
   return {
     meta: {
       title: meta.title,
+      uid: generateUid(),
       subtitle: meta.subtitle,
       author: meta.author,
       version: SCHEMA_VERSION,
@@ -172,8 +184,14 @@ export function createSkeletonStory(meta: {
   }
 }
 
-/** 最近一次读取/保存的原始内容（key = 根目录 + 标题），用于并发冲突检测 */
-const loadedCache = new Map<string, string>()
+/** 最近读取/保存的原始内容（key = 根目录 + 标题），用于并发冲突检测；LRU 防长驻进程内存无界增长。 */
+const LOADED_CACHE_LIMIT = 20
+const loadedCache = new LruCache<string, string>(LOADED_CACHE_LIMIT)
+
+/** 测试可观测：当前冲突检测缓存条目数（≤ LOADED_CACHE_LIMIT）。 */
+export function loadedCacheSize(): number {
+  return loadedCache.size
+}
 
 const cacheKey = (title: string): string => `${PROJECTS_ROOT}\u0000${title}`
 

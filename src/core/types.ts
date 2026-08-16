@@ -268,21 +268,53 @@ export interface PresentationConfig {
   shape?: 'sharp' | 'soft' | 'round'
   /** 选项的视觉隐喻。 */
   choiceStyle?: 'buttons' | 'list' | 'dialogue' | 'commands'
+  /** 选项出现动画：无 / 依次淡入 / 依次上浮淡入。默认 fade；减弱动态偏好下自动关闭。 */
+  choiceReveal?: 'none' | 'fade' | 'slide'
+  /** 正文呈现方式：立即显示 / 逐字输出 / 仿终端逐字输出。默认 instant；点击或 Enter 可补全。 */
+  textReveal?: 'instant' | 'typewriter' | 'terminal'
 }
 
-/** 拟态网页的全局站点身份。首个纵向切片只支持新闻站。 */
+/** 拟态网页的站点外壳种类。 */
+export type SiteKind = 'news' | 'forum' | 'blog' | 'mail'
+
+/**
+ * 站点视觉性格：同一外壳下的有限“不同站点”差异，避免模板感。
+ * news: broadsheet/local/wire/tabloid；forum: classic/modern/terminal；
+ * blog: folio/diary/editorial；mail: client/plain。
+ */
+export type SitePersona =
+  | 'broadsheet' | 'local' | 'wire' | 'tabloid'
+  | 'classic' | 'modern' | 'terminal'
+  | 'folio' | 'diary' | 'editorial'
+  | 'client' | 'plain'
+
+/** 拟态网页的全局站点身份；页面导航继续复用节点 choices。 */
 export interface SiteConfig {
-  kind: 'news'
+  kind: SiteKind
   /** 站点抬头；与作品真实标题分离，避免一眼暴露游戏外壳。 */
   name: string
   tagline?: string
   /** 页眉中的短地区/频道标识，如“汐见町”。 */
   locale?: string
+  /** 站点视觉性格；缺省时使用该外壳的默认版式。 */
+  persona?: SitePersona
 }
+
+/** 页面布局：news 与 blog 的 article/post 是阅读页，forum 的 compose 与 mail 的 draft 是书写页。 */
+export type WebPageLayout =
+  | 'frontpage' | 'article' | 'bulletin'   // news
+  | 'board' | 'thread' | 'compose'          // forum
+  | 'index' | 'post' | 'archive'            // blog
+  | 'inbox' | 'thread' | 'draft'            // mail（thread 与论坛共用枚举值）
+
+/** 信息列表页（frontpage/board/index/inbox）的版面组合方式。 */
+export type PageComposition = 'single' | 'lead-grid' | 'lead-grid-sidebar' | 'grid' | 'feed'
 
 /** 当前节点在拟态网站中的页面语义；选项仍是唯一导航与剧情行动。 */
 export interface WebPageMeta {
-  layout?: 'frontpage' | 'article' | 'bulletin'
+  layout?: WebPageLayout
+  /** 列表页版面组合；只对 frontpage/board/index/inbox 生效。 */
+  composition?: PageComposition
   section?: string
   headline?: string
   byline?: string
@@ -323,6 +355,18 @@ export interface EndingMeta {
   kind: EndingKind
 }
 
+/** 选项在拟态网站列表页中的卡片呈现；不影响 when/effects/target 与路径逻辑。 */
+export interface ChoiceCard {
+  /** 列表页版面槽位。缺省时由 composition 与选项序号决定。 */
+  slot?: 'lead' | 'grid' | 'sidebar' | 'feed'
+  /** 卡片摘要；避免把正文复制到首页。 */
+  summary?: string
+  /** 程序化媒体占位：照片/文档/地图/图表/信号，不引入外部图片。 */
+  media?: 'photo' | 'document' | 'map' | 'chart' | 'signal'
+  /** 短标签，如“独家”“置顶”“未读”。 */
+  badge?: string
+}
+
 export interface Choice {
   /** 按钮文案（同样支持 {var} 插值） */
   label: string
@@ -337,6 +381,8 @@ export interface Choice {
   when?: Condition
   /** 选择本选项后生效 */
   effects?: Effects
+  /** 拟态网站列表页中的卡片元数据；纯表现，不产生第二路由。 */
+  card?: ChoiceCard
 }
 
 /** 最近一次选择的叙事承接；属于展示状态，不参与路径逻辑。 */
@@ -419,17 +465,23 @@ export interface StoryNode {
 
 /** 节点动画效果规格（fx 数组元素：效果名或带参数的规格） */
 export interface FxSpec {
-  name: 'shake' | 'flicker' | 'glitch' | 'pulse' | 'unstable'
+  name: 'shake' | 'flicker' | 'glitch' | 'pulse' | 'unstable' | 'spotlight'
   /** 幅度倍率 0.1..2（默认 1：原版幅度；0.3 = 轻微，2 = 剧烈） */
   intensity?: number
   /** 频率倍率 0.25..4（默认 1：原版周期；2 = 快一倍，0.5 = 慢一倍） */
   speed?: number
+  /** 仅 spotlight：光锥轻微摇晃。 */
+  sway?: boolean
+  /** 仅 spotlight：光锥不稳定闪烁。 */
+  flicker?: boolean
 }
 
 export type FxItem = FxSpec['name'] | FxSpec
 
 export interface StoryMeta {
   title: string
+  /** 稳定存档标识（story_new 生成）；file:// 下同标题作品存档互不干扰。旧作品可缺省，跑时回退标题。 */
+  uid?: string
   subtitle?: string
   version?: string
   author?: string
@@ -474,6 +526,11 @@ export interface Story {
 /* ------------------------------ 运行时状态 ------------------------------ */
 
 export interface GameState {
+  /**
+   * 存档格式版本（SAVE_VERSION）；旧档缺省视为 v1。
+   * 对存档做破坏性结构变更时 +1 并提供迁移（见 engine.migrateSave）。
+   */
+  saveVersion?: number
   nodeId: string
   /** 最近一次选择；仅在其目标为当前节点时显示 response。 */
   lastChoice: ChoiceTrace | null

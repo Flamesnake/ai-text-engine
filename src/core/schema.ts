@@ -3,6 +3,7 @@ import { SFX_NAMES, SOUNDSCAPE_NAMES } from './types.js'
 import type {
   Achievement,
   Choice,
+  ChoiceCard,
   Condition,
   Effects,
   Evidence,
@@ -69,22 +70,55 @@ export const PresentationConfigSchema: z.ZodType<PresentationConfig> = z.object(
   density: z.enum(['compact', 'balanced', 'spacious']).optional(),
   shape: z.enum(['sharp', 'soft', 'round']).optional(),
   choiceStyle: z.enum(['buttons', 'list', 'dialogue', 'commands']).optional(),
+  choiceReveal: z.enum(['none', 'fade', 'slide']).optional(),
+  textReveal: z.enum(['instant', 'typewriter', 'terminal']).optional(),
 }).strict()
 
+const SITE_PERSONAS = [
+  'broadsheet', 'local', 'wire', 'tabloid',
+  'classic', 'modern', 'terminal',
+  'folio', 'diary', 'editorial',
+  'client', 'plain',
+] as const
+
+const PERSONA_BY_KIND: Record<string, string[]> = {
+  news: ['broadsheet', 'local', 'wire', 'tabloid'],
+  forum: ['classic', 'modern', 'terminal'],
+  blog: ['folio', 'diary', 'editorial'],
+  mail: ['client', 'plain'],
+}
+
 export const SiteConfigSchema: z.ZodType<SiteConfig> = z.object({
-  kind: z.literal('news'),
+  kind: z.enum(['news', 'forum', 'blog', 'mail']),
   name: z.string().min(1).max(80),
   tagline: z.string().max(120).optional(),
   locale: z.string().max(40).optional(),
-}).strict()
+  persona: z.enum(SITE_PERSONAS).optional(),
+}).strict().refine(
+  (site) => site.persona === undefined || PERSONA_BY_KIND[site.kind].includes(site.persona),
+  { message: 'persona 与 site.kind 不匹配', path: ['persona'] },
+)
+
+const LIST_LAYOUTS = ['frontpage', 'board', 'index', 'inbox'] as const
 
 export const WebPageMetaSchema: z.ZodType<WebPageMeta> = z.object({
-  layout: z.enum(['frontpage', 'article', 'bulletin']).optional(),
+  layout: z.enum([
+    'frontpage', 'article', 'bulletin',
+    'board', 'thread', 'compose',
+    'index', 'post', 'archive',
+    'inbox', 'draft',
+  ]).optional(),
+  composition: z.enum(['single', 'lead-grid', 'lead-grid-sidebar', 'grid', 'feed']).optional(),
   section: z.string().max(40).optional(),
   headline: z.string().max(160).optional(),
   byline: z.string().max(60).optional(),
   timestamp: z.string().max(60).optional(),
-}).strict().refine((page) => Object.keys(page).length > 0, 'page 至少包含一个页面字段')
+}).strict()
+  .refine((page) => Object.keys(page).length > 0, 'page 至少包含一个页面字段')
+  .refine(
+    (page) => page.composition === undefined || (page.layout !== undefined && (LIST_LAYOUTS as readonly string[]).includes(page.layout)),
+    { message: 'composition 只对 frontpage/board/index/inbox 列表页生效', path: ['composition'] },
+  )
 
 export const HudStatSchema: z.ZodType<HudStat> = z.object({
   var: z.string(),
@@ -201,13 +235,18 @@ export const PuzzleSchema: z.ZodType<Puzzle> = z.object({
 
 /* ------------------------------ 节点 / 选项 / 结局 / 成就 ------------------------------ */
 
-const FX_NAMES = ['shake', 'flicker', 'glitch', 'pulse', 'unstable'] as const
+const FX_NAMES = ['shake', 'flicker', 'glitch', 'pulse', 'unstable', 'spotlight'] as const
 
 export const FxSpecSchema = z.object({
   name: z.enum(FX_NAMES),
   intensity: z.number().min(0.1).max(2).optional(),
   speed: z.number().min(0.25).max(4).optional(),
-})
+  sway: z.boolean().optional(),
+  flicker: z.boolean().optional(),
+}).refine(
+  (fx) => (fx.sway === undefined && fx.flicker === undefined) || fx.name === 'spotlight',
+  { message: 'sway/flicker 只对 spotlight 效果有效' },
+)
 
 export const FxItemSchema: z.ZodType<FxItem> = z.union([z.enum(FX_NAMES), FxSpecSchema])
 
@@ -241,12 +280,20 @@ export const StateAxisConfigSchema = z.object({
   states: z.record(z.string(), StateAppearanceSchema),
 }).strict()
 
+export const ChoiceCardSchema: z.ZodType<ChoiceCard> = z.object({
+  slot: z.enum(['lead', 'grid', 'sidebar', 'feed']).optional(),
+  summary: z.string().max(200).optional(),
+  media: z.enum(['photo', 'document', 'map', 'chart', 'signal']).optional(),
+  badge: z.string().max(20).optional(),
+}).strict().refine((card) => Object.keys(card).length > 0, 'card 至少包含一个字段')
+
 export const ChoiceSchema: z.ZodType<Choice> = z.object({
   label: z.string(),
   response: z.string().optional(),
   target: z.string(),
   when: ConditionSchema.optional(),
   effects: EffectsSchema.optional(),
+  card: ChoiceCardSchema.optional(),
 })
 
 export interface ChoicePatch {
@@ -313,6 +360,7 @@ export const AchievementSchema: z.ZodType<Achievement> = z.object({
 
 export const StoryMetaSchema: z.ZodType<StoryMeta> = z.object({
   title: z.string(),
+  uid: z.string().optional(),
   subtitle: z.string().optional(),
   version: z.string().optional(),
   author: z.string().optional(),
@@ -339,6 +387,7 @@ export const StorySchema: z.ZodType<Story> = z.object({
 })
 
 export const GameStateSchema: z.ZodType<GameState> = z.object({
+  saveVersion: z.number().int().positive().optional(),
   nodeId: z.string(),
   lastChoice: ChoiceTraceSchema.nullable().default(null),
   history: z.array(z.string()),

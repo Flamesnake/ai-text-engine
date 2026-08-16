@@ -2,6 +2,11 @@ import type { Achievement, Choice, Condition, EndingMeta, GameState, Story, Stor
 import { applyEffects } from './effects.js'
 import { evalCondition, type ConditionContext } from './conditions.js'
 
+/** 当前存档格式版本；对存档做破坏性结构变更时 +1 并在 migrateSave 中分叉迁移。 */
+export const SAVE_VERSION = 1
+
+const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
+
 /**
  * Game：文字冒险状态机（纯逻辑，不依赖 DOM）。
  *
@@ -20,6 +25,7 @@ export class Game {
     if (save) {
       // 轻量运行时校验：损坏/伪造的存档给出明确错误（浏览器端不引入 zod，见 assertSave）
       this.assertSave(save)
+      save = this.migrateSave(save)
       this.assertNode(save.nodeId)
       this.st = {
         nodeId: save.nodeId,
@@ -81,7 +87,8 @@ export class Game {
   /* ------------------------------ getters ------------------------------ */
 
   get state(): Readonly<GameState> {
-    return this.st
+    // 返回浅拷贝：类型层面的 Readonly 只防编译期，运行期仍需封装内部 st（P0-3）。
+    return this.snapshot()
   }
 
   get currentNode(): StoryNode {
@@ -188,6 +195,13 @@ export class Game {
   /* ------------------------------ 存档 ------------------------------ */
 
   toSave(): GameState {
+    return { ...this.snapshot(), saveVersion: SAVE_VERSION, updatedAt: Date.now() }
+  }
+
+  /* ------------------------------ 内部 ------------------------------ */
+
+  /** 状态快照：数组/对象字段浅拷一层，供 state getter 与 toSave 共用。 */
+  private snapshot(): GameState {
     return {
       nodeId: this.st.nodeId,
       lastChoice: this.st.lastChoice ? { ...this.st.lastChoice } : null,
@@ -211,11 +225,18 @@ export class Game {
       phase: this.st.phase,
       achievements: [...this.st.achievements],
       endingId: this.st.endingId,
-      updatedAt: Date.now(),
+      updatedAt: this.st.updatedAt,
     }
   }
 
-  /* ------------------------------ 内部 ------------------------------ */
+  /**
+   * 存档版本迁移钩子：assertSave 通过后、结构恢复前调用。
+   * 当前只有 v1，原样返回；未来对存档做破坏性结构变更时，在此按版本分叉迁移
+   * （例如 v1 → v2 的 relations 语义调整），并为每次迁移补测试。
+   */
+  private migrateSave(save: GameState): GameState {
+    return save
+  }
 
   hasSeenTutorial(tutorialId: string): boolean {
     return this.st.tutorialsSeen.includes(tutorialId)
@@ -259,11 +280,22 @@ export class Game {
     if (!deduction) return false
     const selected = new Set(selectedEvidenceIds)
     if ([...selected].some((id) => !this.st.evidence.includes(id))) return false
-    const allMet = (deduction.requires.all ?? []).every((id) => selected.has(id))
-    const anyMet = (deduction.requires.anyOf ?? []).every((group) =>
+    const requiredAll = deduction.requires.all ?? []
+    const alternativeGroups = deduction.requires.anyOf ?? []
+    const allMet = requiredAll.every((id) => selected.has(id))
+    const anyMet = alternativeGroups.every((group) =>
       group.some((id) => selected.has(id)),
     )
     if (!allMet || !anyMet) return false
+    // 精确选择：必须恰好等于「全部必需证据 + 每组替代证据中的一条」。
+    // 多选无关证据（例如全选）不再能凑出推论，玩家必须理解哪些证据真正支持结论。
+    const valid = new Set<string>(requiredAll)
+    for (const group of alternativeGroups) {
+      const chosen = group.find((id) => selected.has(id))
+      if (!chosen) return false
+      valid.add(chosen)
+    }
+    if (selected.size !== valid.size || [...selected].some((id) => !valid.has(id))) return false
     if (!this.st.deductions.includes(deductionId)) {
       this.st.deductions.push(deductionId)
       const target = this.effectTarget()
@@ -401,6 +433,11 @@ export class Game {
    * 关键字段类型错误时给出明确错误；缺失的可选字段由恢复逻辑给默认值。
    */
   private assertSave(save: GameState): void {
+    // 版本护栏：缺省视为 v1；未知（更高）版本必须显式报错，避免静默错乱。
+    const version = save.saveVersion === undefined ? 1 : save.saveVersion
+    if (!isPositiveInt(version) || version > SAVE_VERSION) {
+      throw new Error(`存档版本不受支持：${String(save.saveVersion ?? '缺省？')}（当前引擎支持最高 v${SAVE_VERSION}）`)
+    }
     const bad: string[] = []
     if (typeof save.nodeId !== 'string') bad.push('nodeId')
     if (save.lastChoice !== undefined && save.lastChoice !== null && (

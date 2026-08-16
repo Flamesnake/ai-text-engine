@@ -131,4 +131,23 @@ describe('项目存储深模块', () => {
     const after = await readFile(path.join(tmp, '原样', 'story.json'), 'utf-8')
     expect(after).toBe(before)
   })
+
+  it('loadedCache 是 LRU：读写 25 个项目后缓存不超 20，未淘汰条目冲突检测仍生效', async () => {
+    let firstStory: ReturnType<typeof projects.createSkeletonStory> | null = null
+    for (let i = 1; i <= 25; i++) {
+      const story = projects.createSkeletonStory({ title: `LRU项目${i}` })
+      if (i === 1) firstStory = story
+      await projects.saveStory(story)
+      await projects.loadStory(`LRU项目${i}`)
+    }
+    expect(projects.loadedCacheSize()).toBeLessThanOrEqual(20)
+    // 最近的条目仍在缓存：外部改写后保存 → 冲突检测拒绝
+    const freshest = await projects.loadStory('LRU项目25')
+    await writeFile(path.join(tmp, 'LRU项目25', 'story.json'), '{}', 'utf-8')
+    await expect(projects.saveStory(freshest)).rejects.toMatchObject({ code: 'CONFLICT' })
+    // 最旧的条目已被淘汰：外部改写后保存 → 不再报冲突（正常覆盖）。
+    // 注意这里不能再 loadStory（那会把条目重新放回缓存），直接用最初保存的 story 对象。
+    await writeFile(path.join(tmp, 'LRU项目1', 'story.json'), '{}', 'utf-8')
+    await expect(projects.saveStory(firstStory!)).resolves.toContain('LRU项目1')
+  })
 })
